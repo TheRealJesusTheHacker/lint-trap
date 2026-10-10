@@ -75,12 +75,13 @@ class MockModem:
         return True
 
     def send_mms(self, number, subject, text, images):
+        if self.fail_mms:
+            self._log("AT+CMMSINIT -> OK")
+            self._log("AT+CMMSSEND -> ERROR (simulated carrier rejection)")
+            return False
         self._log("AT+CMMSINIT -> OK")
         self._log("AT+CMMSDOWN PIC x%d -> CONNECT ... OK" % len(images))
         self._log('AT+CMMSSEND="%s" -> +CMMSSEND: OK' % number)
-        if self.fail_mms:
-            self._log("MMS FAILED (simulated carrier rejection)")
-            return False
         ts = int(time.time())
         with open(os.path.join(OUTBOX, "mms_%d.txt" % ts), "w") as f:
             f.write("TO: %s\nSUBJECT: %s\n\n%s\n\n[ATTACHED: %d JPEG photos]\n"
@@ -103,6 +104,9 @@ class MockLed:
 class MockClock:
     def now_ms(self):
         return int(time.monotonic() * 1000)
+
+    def diff_ms(self, newer, older):
+        return newer - older
 
 
 def build_mock_hal(fail_mms=False, gps_fail=False, gps_delay_s=4):
