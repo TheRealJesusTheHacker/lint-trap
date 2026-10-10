@@ -14,6 +14,7 @@ except ImportError:
     _ON_DEVICE = False
 
 from . import hal as _hal
+from . import config as _cfg
 
 
 class _Uart:
@@ -36,6 +37,10 @@ class _Uart:
                     return buf.decode(errors="ignore")
             time.sleep_ms(50)
         raise OSError("AT timeout: " + at)
+
+    def write_raw(self, data):
+        """Write bytes outside AT framing (e.g. after a CONNECT prompt)."""
+        self._u.write(data)
 
 
 class GpioButton(_hal.ButtonHAL):
@@ -103,20 +108,22 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
         return True
 
     def send_mms(self, number, subject, text, images):
+        # DRAFT — validate every line against the SIM7080G AT manual on
+        # the bench. The init -> down -> send -> term SHAPE matches SIMCom's
+        # documented flow; the MMSC/proxy addressing is carrier-specific.
         self._attach()
-        u = self._uart
-        # DRAFT: validate against the SIM7080G AT manual on the bench.
+        u, c = self._uart, _cfg
         u.cmd("AT+CMMSINIT")
-        u.cmd("AT+CMMSTERM")
-        u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(text.encode()),
-              expect="CONNECT")
-        self._uart._u.write(text.encode())
-        u.cmd("", expect="OK")
+        u.cmd('AT+CMMSCFG="mmsc","%s"' % c.CARRIER_MMSC_URL)
+        u.cmd('AT+CMMSCFG="proxy","%s",%d' % (c.CARRIER_MMS_PROXY,
+                                             c.CARRIER_MMS_PROXY_PORT))
+        tb = text.encode()
+        u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(tb), expect="CONNECT")
+        u.write_raw(tb)
         for img in images:
             u.cmd('AT+CMMSDOWN="PIC",%d,20000' % len(img), expect="CONNECT")
             for j in range(0, len(img), 1024):
-                self._uart._u.write(img[j:j + 1024])
-            u.cmd("", expect="OK")
+                u.write_raw(img[j:j + 1024])
         u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:",
               timeout_ms=60000)
         u.cmd("AT+CMMSTERM")
@@ -199,6 +206,9 @@ class PrintLed(_hal.LedHAL):
 class DeviceClock(_hal.Clock):
     def now_ms(self):
         return time.ticks_ms()
+
+    def diff_ms(self, newer, older):
+        return time.ticks_diff(newer, older)
 
 
 def build_lilygo_pod(board, pmu):
