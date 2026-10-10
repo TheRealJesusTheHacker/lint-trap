@@ -24,6 +24,9 @@ MODEM_DTR_PIN = 42
 MODEM_RI_PIN = 3
 
 # --- OV2640 camera (board's camera connector) ---
+# NOTE: on LilyGo's MicroPython build these pins are baked into the
+# firmware — camera.init() takes no pin arguments. The constants below
+# document the wiring and are used by the future custom motherboard.
 CAM_PWDN = -1       # not routed
 CAM_RESET = 18
 CAM_XCLK = 8
