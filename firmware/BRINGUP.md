@@ -20,7 +20,7 @@ carriers before writing any more code.
 ## Steps (REPL over USB-C)
 
 ```python
-import bringup
+from pod import bringup
 bringup.step1_power()   # PMU, battery voltage, charging
 bringup.step2_camera()  # OV2640 still -> photo_test.jpg on flash
 bringup.step3_sms()     # Cat-M1 attach, "hoodie pod alive" SMS
