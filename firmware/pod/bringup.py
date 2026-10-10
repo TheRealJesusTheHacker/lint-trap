@@ -97,7 +97,7 @@ def step5_golden():
     pod_hal, clock, _btn_pin = build_lilygo_pod(B, _pmu())
     pod = alert.AlertPod(pod_hal, C, clock)
     pod.attach_button(button.PanicButton(pod_hal.button,
-                                         C.BUTTON_HOLD_SECONDS,
+                                         C.BUTTON_HOLD_SECONDS, clock,
                                          C.BUTTON_DEBOUNCE_MS))
     print("hold the panic button 2 seconds...")
     last_seen = ""
