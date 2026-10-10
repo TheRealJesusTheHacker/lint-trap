@@ -15,7 +15,7 @@ def main():
     pod_hal, clock, mock_btn = mock_hal.build_mock_hal()
     pod = alert.AlertPod(pod_hal, config, clock)
     pod.attach_button(button.PanicButton(pod_hal.button,
-                                         config.BUTTON_HOLD_SECONDS))
+                                         config.BUTTON_HOLD_SECONDS, clock))
 
     root = tk.Tk()
     root.title("Hoodie Pod — Proof Model")
