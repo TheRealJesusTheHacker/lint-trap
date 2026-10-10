@@ -34,6 +34,14 @@ class _Uart:
             if n:
                 buf += self._u.read(n)
                 if expect.encode() in buf:
+                    # Drain: the matched line (e.g. +CGNSINF coordinates)
+                    # may still be arriving after the match.
+                    for _ in range(6):
+                        time.sleep_ms(50)
+                        m = self._u.any()
+                        if not m:
+                            break
+                        buf += self._u.read(m)
                     return buf.decode(errors="ignore")
             time.sleep_ms(50)
         raise OSError("AT timeout: " + at)
@@ -41,6 +49,19 @@ class _Uart:
     def write_raw(self, data):
         """Write bytes outside AT framing (e.g. after a CONNECT prompt)."""
         self._u.write(data)
+
+    def write_all(self, data):
+        """Write every byte, surviving partial UART writes."""
+        off = 0
+        while off < len(data):
+            chunk = data[off:off + 1024]
+            n = self._u.write(chunk)
+            if n is None:
+                off += len(chunk)  # port took it all
+            elif n == 0:
+                time.sleep_ms(10)
+            else:
+                off += n
 
 
 class GpioButton(_hal.ButtonHAL):
@@ -119,11 +140,10 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
                                              c.CARRIER_MMS_PROXY_PORT))
         tb = text.encode()
         u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(tb), expect="CONNECT")
-        u.write_raw(tb)
+        u.write_all(tb)
         for img in images:
             u.cmd('AT+CMMSDOWN="PIC",%d,20000' % len(img), expect="CONNECT")
-            for j in range(0, len(img), 1024):
-                u.write_raw(img[j:j + 1024])
+            u.write_all(img)
         u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:",
               timeout_ms=60000)
         u.cmd("AT+CMMSTERM")
@@ -184,6 +204,11 @@ class Ov2640(_hal.CameraHAL):
         raise RuntimeError("OV2640 init failed — check camera connector")
 
     def capture_jpeg(self, quality):
+        # NOTE: quality is advisory on-device — LilyGo's MicroPython
+        # camera driver uses its own default JPEG quality; there is no
+        # per-capture quality knob. Check photo_test.jpg size at
+        # bringup step2: if frames are too big for MMS, the fix is in
+        # the driver/firmware, not here.
         self._init()
         import camera
         return camera.capture()
