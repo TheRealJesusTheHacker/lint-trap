@@ -61,12 +61,24 @@ def main():
         print("WARNING: low battery — alert will still send, charge soon")
 
     if machine.reset_cause() == machine.DEEPSLEEP_RESET:
+        # Button wake: no delays, every second counts.
         print("woke by button — arming hold timer")
         result = run_alert(pmu)
-        print("alert complete: %s" % result if result
-              else "short press — back to sleep")
+        if result:
+            print("alert complete: %s" % result)
+        else:
+            print("short press — back to sleep")
     else:
-        print("power-on boot — sleeping until the button is pressed")
+        # Power-on boot: bench window. Without this, the board sleeps
+        # before you can get a REPL, and bringup.py becomes unreachable
+        # (deep sleep eats Ctrl+C). Ctrl+C here drops to REPL instead.
+        print("power-on boot: 5s REPL window (Ctrl+C), then sleep")
+        try:
+            for _ in range(50):
+                time.sleep_ms(100)
+        except KeyboardInterrupt:
+            print("REPL mode — pod NOT armed; run: from pod import bringup")
+            return
     go_to_sleep(pmu)
 
 
