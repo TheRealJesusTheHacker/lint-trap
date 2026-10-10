@@ -47,3 +47,7 @@ class Clock:
     """Milliseconds clock — time.ticks_ms() on device, time.monotonic on PC."""
     def now_ms(self):
         raise NotImplementedError
+    def diff_ms(self, newer, older):
+        """Wrap-safe newer - older. MUST be used for all time math:
+        MicroPython ticks_ms() wraps every ~12 days."""
+        raise NotImplementedError
