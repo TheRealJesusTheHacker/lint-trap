@@ -1,0 +1,3 @@
+# dev-only deps for the PC simulator (sim/)
+# the pod/ firmware itself is dependency-free MicroPython
+pillow==12.3.0
