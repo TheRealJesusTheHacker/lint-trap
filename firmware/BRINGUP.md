@@ -15,7 +15,12 @@ carriers before writing any more code.
 4. Flash MicroPython (LilyGo's `LilyGo-T-SIM7080G-MicroPython-firmware.bin`
    via esptool), copy `pod/` to the board, and copy LilyGo's MIT
    `lib/XPowersLib.py` next to it.
-5. Fill in `pod/config.py`: `PARENT_NUMBER`, `CARRIER_APN`.
+5. Fill in `pod/config.py`: `PARENT_NUMBER`, `CARRIER_APN`, `CARRIER_MMSC_URL`,
+   `CARRIER_MMS_PROXY`.
+6. Do NOT copy `pod/main.py` as the board's root `main.py` yet — do that
+   after step5 passes. (The pod firmware deep-sleeps on boot; power-on
+   gives a 5s Ctrl+C window for REPL, but bench work is easier without
+   main.py in the way.)
 
 ## Steps (REPL over USB-C)
 
@@ -23,6 +28,9 @@ carriers before writing any more code.
 from pod import bringup
 bringup.step1_power()   # PMU, battery voltage, charging
 bringup.step2_camera()  # OV2640 still -> photo_test.jpg on flash
+                       # CHECK the file size: on-device JPEG quality is the
+                       # driver default (no per-capture knob). If a VGA frame
+                       # is too big for MMS, note it — driver fix needed.
 bringup.step3_sms()     # Cat-M1 attach, "hoodie pod alive" SMS
 bringup.step4_gps()     # GNSS fix — WRITE DOWN the time-to-fix
 bringup.step5_golden()  # hold button 2s -> fix -> 3 JPEGs -> MMS + SMS
