@@ -1,10 +1,13 @@
 # Bench bring-up for the parts-list hardware, in the buy list's order.
 # Run each step from the MicroPython REPL over USB-C:
 #
-#   import bringup
+#   from pod import bringup
 #   bringup.step1_power()    # -> then step2, step3, ...
 #
 # Do NOT skip steps. Each one proves a subsystem before the next depends on it.
+# NOTE: if the board's root main.py is the pod firmware, power-on gives you
+# a 5s Ctrl+C window for REPL — use the mechanical switch to power-cycle
+# if you miss it.
 
 from . import lilygo_board as B
 from . import config as C
@@ -23,7 +26,6 @@ def _pmu():
 def step1_power():
     """Power + battery/charging check. VERIFY JST POLARITY FIRST (red/black)
     — reversed polarity kills the board."""
-    import machine
     p = _pmu()
     print("PMU ok")
     print("battery connected:", p.battery_connected())
@@ -90,7 +92,7 @@ def step4_gps():
 
 def step5_golden():
     """The golden path on real hardware: hold the button 2s -> fix ->
-    3 JPEGs -> MMS + SMS to the parent number. Then deep sleep."""
+    3 JPEGs -> MMS + SMS to the parent number."""
     from . import alert, button
     from .esp32_hal import build_lilygo_pod
     import time
