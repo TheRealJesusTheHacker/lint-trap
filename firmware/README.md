@@ -9,17 +9,31 @@ parent's phone.** No servers anywhere — carrier MMS/SMS direct.
 ```
 firmware/
   pod/            MicroPython code — runs ON the ESP32-S3 board
-    config.py     parent number, carrier APN/MMSC, timings (FILL IN before flashing)
+    config.py     parent number, carrier APN, timings (FILL IN before flashing)
     hal.py        hardware abstraction contract
     button.py     debounced hold-to-trigger (a bump never fires an alert)
     alert.py      the orchestrator: IDLE → GPS → CAPTURE → SEND, with fallbacks
-    esp32_hal.py  real peripherals: GPIO button, SIM7080G AT commands, OV2640, RGB LED
-    main.py       copy to board as main.py — runs the pod forever
+    lilygo_board.py  REAL pins for the parts-list T-SIM7080G-S3 (from LilyGo docs)
+    pmu.py        AXP2101 power-up: modem/GPS/camera rails, TS disable, battery
+    esp32_hal.py  real peripherals: GPIO45 button, SIM7080G AT, OV2640, PWRKEY
+    bringup.py    bench bring-up in the buy list's order (step1..step5)
+    main.py       copy to board as main.py — runs the pod forever, sleeps between alerts
   sim/            PC proof model — the SAME pod/ logic against mocks
     mock_hal.py   mock button/GPS/camera/modem/LED; modem writes sim/outbox/
     run.py        CLI: full golden path + --no-mms / --no-gps fallback tests
     gui.py        tkinter demo: hold the big red button with your mouse
+  BRINGUP.md      bench procedure: polarity, SIM, antennas, steps, fault table
+  HARDWARE.md     product architecture: one motherboard + wired peripherals
 ```
+
+## Board setup
+
+1. Flash LilyGo's MicroPython firmware for the T-SIM7080G-S3 (esptool).
+2. Copy `pod/` to the board. Copy LilyGo's MIT `lib/XPowersLib.py`
+   (from [LilyGo-T-SIM7080G-MicroPython](https://github.com/Xinyuan-LilyGO/LilyGo-T-SIM7080G-MicroPython))
+   next to it — `pmu.py` wraps it.
+3. Fill in `pod/config.py` (parent number, carrier APN).
+4. Follow `BRINGUP.md`: `bringup.step1_power()` … `step5_golden()`.
 
 ## Run it right now (no hardware needed)
 
