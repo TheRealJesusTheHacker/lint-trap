@@ -1,24 +1,27 @@
-# ESP32-S3 hardware implementations for the LILYGO T-SIM7080G-S3.
-# DRAFT — AT sequences must be validated against the SIMCom SIM7080G
-# AT Command Manual on real hardware before trusting them.
-# Copy this whole pod/ directory onto the board; main.py wires it up.
+# Real ESP32-S3 peripherals for the LILYGO T-SIM7080G-S3.
+# Built against the parts list: SIM7080G modem, OV2640 camera,
+# MakerNova 2000mAh LiPo, 12mm metal panic button on GPIO45.
+#
+# DRAFT until bench-validated: AT sequences and the PWRKEY pulse come from
+# LilyGo's docs/examples, not a live board.
 
 try:
     import machine
     import time
+    import esp32
     _ON_DEVICE = True
 except ImportError:
     _ON_DEVICE = False
 
 from . import hal as _hal
-from . import config as _cfg
 
 
 class _Uart:
-    def __init__(self, cfg):
-        self._u = machine.UART(cfg.UART_MODEM_ID,
-                               baudrate=cfg.UART_MODEM_BAUD,
-                               tx=cfg.PIN_UART_TX, rx=cfg.PIN_UART_RX,
+    def __init__(self, board):
+        self._u = machine.UART(board.MODEM_UART_ID,
+                               baudrate=board.MODEM_BAUD,
+                               tx=machine.Pin(board.MODEM_TX_PIN),
+                               rx=machine.Pin(board.MODEM_RX_PIN),
                                timeout=1000)
 
     def cmd(self, at, expect="OK", timeout_ms=10000):
@@ -26,45 +29,122 @@ class _Uart:
         deadline = time.ticks_ms() + timeout_ms
         buf = b""
         while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-            chunk = self._u.read()
-            if chunk:
-                buf += chunk
+            n = self._u.any()
+            if n:
+                buf += self._u.read(n)
                 if expect.encode() in buf:
                     return buf.decode(errors="ignore")
             time.sleep_ms(50)
-        raise OSError("AT timeout: " + at + " -> " + buf.decode(errors="ignore")[-120:])
+        raise OSError("AT timeout: " + at)
 
 
 class GpioButton(_hal.ButtonHAL):
-    def __init__(self, cfg):
-        self._pin = machine.Pin(cfg.PIN_BUTTON, machine.Pin.IN,
+    def __init__(self, pin_num):
+        self._pin = machine.Pin(pin_num, machine.Pin.IN,
                                 machine.Pin.PULL_UP)
 
     def is_pressed(self):
-        return self._pin.value() == 0  # active-low
+        return self._pin.value() == 0  # active-low, wired to GND
+
+    @property
+    def pin(self):
+        return self._pin
 
 
-class Sim7080Gps(_hal.GpsHAL):
-    def __init__(self, uart):
-        self._u = uart
+class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
+    """SIM7080G: one object because cellular and GNSS share the modem —
+    and LilyGo's docs are explicit they can NEVER run simultaneously."""
 
+    def __init__(self, board, pmu):
+        self._board = board
+        self._pmu = pmu
+        self._uart = _Uart(board)
+        self._pwrkey = machine.Pin(board.MODEM_PWR_PIN, machine.Pin.OUT)
+        self._pwrkey.value(1)
+        self._attached = False
+        self._gnss_on = False
+
+    # -- power --
+    def _pulse_pwrkey(self):
+        # PWRKEY active-low, >1s per SIMCom manual
+        self._pwrkey.value(0)
+        time.sleep_ms(1200)
+        self._pwrkey.value(1)
+        time.sleep_ms(5000)  # modem boot time
+
+    def _ensure_alive(self):
+        for _ in range(3):
+            try:
+                self._uart.cmd("AT", timeout_ms=2000)
+                return
+            except OSError:
+                pass
+        self._pulse_pwrkey()
+        self._uart.cmd("AT", timeout_ms=10000)  # raises if truly dead
+
+    # -- cellular --
+    def _attach(self):
+        if self._attached:
+            return
+        self._ensure_alive()
+        if self._gnss_on:
+            self.power_off()  # hardware rule: GNSS fully off before cellular
+        u = self._uart
+        u.cmd("AT+CGATT=1", timeout_ms=30000)
+        u.cmd("AT+CNACT=0,1", timeout_ms=30000)
+        self._attached = True
+
+    def send_sms(self, number, text):
+        self._attach()
+        u = self._uart
+        u.cmd("AT+CMGF=1")
+        u.cmd('AT+CMGS="%s"' % number, expect=">")
+        u.cmd(text + chr(26), expect="+CMGS:", timeout_ms=30000)
+        return True
+
+    def send_mms(self, number, subject, text, images):
+        self._attach()
+        u = self._uart
+        # DRAFT: validate against the SIM7080G AT manual on the bench.
+        u.cmd("AT+CMMSINIT")
+        u.cmd("AT+CMMSTERM")
+        u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(text.encode()),
+              expect="CONNECT")
+        self._uart._u.write(text.encode())
+        u.cmd("", expect="OK")
+        for img in images:
+            u.cmd('AT+CMMSDOWN="PIC",%d,20000' % len(img), expect="CONNECT")
+            for j in range(0, len(img), 1024):
+                self._uart._u.write(img[j:j + 1024])
+            u.cmd("", expect="OK")
+        u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:",
+              timeout_ms=60000)
+        u.cmd("AT+CMMSTERM")
+        return True
+
+    # -- GNSS (mutually exclusive with cellular — see _attach) --
     def power_on(self):
-        self._u.cmd("AT+CGNSPWR=1")
+        self._ensure_alive()
+        self._uart.cmd("AT+CGNSPWR=1")
+        self._gnss_on = True
 
     def power_off(self):
         try:
-            self._u.cmd("AT+CGNSPWR=0")
+            self._uart.cmd("AT+CGNSPWR=0", timeout_ms=5000)
         except OSError:
             pass
+        self._gnss_on = False
+        self._attached = False  # re-attach after GNSS; clean state
 
     def get_fix(self, timeout_s):
-        # DRAFT: validate +CGNSINF field layout against the manual.
-        resp = self._u.cmd("AT+CGNSINF", expect="+CGNSINF:",
-                           timeout_ms=int(timeout_s * 1000))
+        try:
+            resp = self._uart.cmd("AT+CGNSINF", expect="+CGNSINF:",
+                                  timeout_ms=int(timeout_s * 1000))
+        except OSError:
+            return None
         for line in resp.splitlines():
             if "+CGNSINF:" in line:
                 f = line.split(":")[1].strip().split(",")
-                # f[0]=run status, f[1]=fix status, f[3]=lat, f[4]=lon
                 if len(f) > 4 and f[1] == "1":
                     try:
                         return (float(f[3]), float(f[4]))
@@ -74,82 +154,46 @@ class Sim7080Gps(_hal.GpsHAL):
 
 
 class Ov2640(_hal.CameraHAL):
-    def __init__(self):
-        import camera  # MicroPython camera driver for ESP32
-        camera.init(0, format=camera.JPEG)
-        self._cam = camera
+    def __init__(self, pmu):
+        self._pmu = pmu
+        self._ready = False
+
+    def _init(self):
+        if self._ready:
+            return
+        import camera
+        self._pmu.camera_power_on()
+        time.sleep_ms(500)  # rails settle
+        for _ in range(5):
+            try:
+                camera.deinit()
+            except Exception:
+                pass
+            if camera.init(0, format=camera.JPEG,
+                           framesize=camera.FRAME_VGA):
+                self._ready = True
+                return
+            time.sleep_ms(2000)
+        raise RuntimeError("OV2640 init failed — check camera connector")
 
     def capture_jpeg(self, quality):
-        # quality tuning is driver-specific; kept simple for the proof model
-        return self._cam.capture()
+        self._init()
+        import camera
+        return camera.capture()
 
 
-class Sim7080Modem(_hal.ModemHAL):
-    """SIM7080G via AT. DRAFT sequences — validate on hardware."""
+class PrintLed(_hal.LedHAL):
+    """Dev-board stand-in: the T-SIM7080G-S3 has no user RGB LED
+    (only modem-status red + PMU charge blue). States go to serial;
+    the custom motherboard gets a real status LED on this interface."""
 
-    def __init__(self, uart, cfg):
-        self._u = uart
-        self._cfg = cfg
-        self._attached = False
-
-    def _attach(self):
-        if self._attached:
-            return
-        self._u.cmd("AT")
-        self._u.cmd("AT+CGATT=1", timeout_ms=30000)
-        # PDP context for the $10/mo consumer line's APN:
-        self._u.cmd('AT+CGDCONT=1,"IP","%s"' % self._cfg.CARRIER_APN)
-        self._u.cmd("AT+CNACT=0,1", timeout_ms=30000)
-        self._attached = True
-
-    def send_sms(self, number, text):
-        self._attach()
-        self._u.cmd("AT+CMGF=1")
-        self._u.cmd('AT+CMGS="%s"' % number, expect=">")
-        self._u.cmd(text + chr(26), expect="+CMGS:")
-        return True
-
-    def send_mms(self, number, subject, text, images):
-        self._attach()
-        u, c = self._u, self._cfg
-        u.cmd("AT+CMMSINIT")
-        u.cmd('AT+CMMSTERM="%s"' % c.CARRIER_MMSC_URL)
-        u.cmd('AT+CMMSPROTO="%s",%d' % (c.CARRIER_MMS_PROXY,
-                                       c.CARRIER_MMS_PROXY_PORT))
-        # text part
-        tb = text.encode()
-        u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(tb), expect="CONNECT")
-        u._u.write(tb)
-        u.cmd("", expect="OK")
-        # photo parts
-        for i, img in enumerate(images):
-            u.cmd('AT+CMMSDOWN="PIC",%d,20000' % len(img), expect="CONNECT")
-            # chunked write: UART buffers are small on the S3
-            for j in range(0, len(img), 1024):
-                u._u.write(img[j:j + 1024])
-            u.cmd("", expect="OK")
-        u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:",
-              timeout_ms=60000)
-        u.cmd("AT+CMMSTERM")
-        return True
-
-
-class RgbLed(_hal.LedHAL):
-    _MAP = {"off": (0, 0, 0), "red": (1, 0, 0), "green": (0, 1, 0),
-            "blue": (0, 0, 1), "amber": (1, 1, 0)}
-
-    def __init__(self, cfg):
-        self._pins = {
-            "r": machine.Pin(cfg.PIN_LED_R, machine.Pin.OUT),
-            "g": machine.Pin(cfg.PIN_LED_G, machine.Pin.OUT),
-            "b": machine.Pin(cfg.PIN_LED_B, machine.Pin.OUT),
-        }
+    def __init__(self):
+        self.color = "off"
 
     def set(self, color):
-        r, g, b = self._MAP.get(color, (0, 0, 0))
-        self._pins["r"].value(r)
-        self._pins["g"].value(g)
-        self._pins["b"].value(b)
+        if color != self.color:
+            print("[LED] %s" % color)
+            self.color = color
 
 
 class DeviceClock(_hal.Clock):
@@ -157,9 +201,18 @@ class DeviceClock(_hal.Clock):
         return time.ticks_ms()
 
 
-def build_pod(cfg):
-    """Wire the real peripherals and return (PodHAL, DeviceClock)."""
-    uart = _Uart(cfg)
-    return (_hal.PodHAL(GpioButton(cfg), Sim7080Gps(uart), Ov2640(),
-                        Sim7080Modem(uart, cfg), RgbLed(cfg)),
-            DeviceClock())
+def build_lilygo_pod(board, pmu):
+    """Wire the real T-SIM7080G-S3 peripherals. Returns (PodHAL, clock, button_pin)."""
+    btn = GpioButton(board.PIN_BUTTON)
+    modem = LilyGoModem(board, pmu)
+    return (_hal.PodHAL(btn, modem, Ov2640(pmu), modem, PrintLed()),
+            DeviceClock(), btn.pin)
+
+
+def sleep_until_button(board):
+    """Deep sleep; wake when the panic button is pressed (active-low).
+    On wake the board reboots into main.py and the hold-timer decides."""
+    pin = machine.Pin(board.PIN_BUTTON, machine.Pin.IN,
+                      machine.Pin.PULL_UP)
+    esp32.wake_on_ext0(pin=pin, level=esp32.WAKE_LOW)
+    machine.deepsleep()
