@@ -10,9 +10,20 @@
 #   BLDO2 3300mV on -> GPS antenna lives
 #   TS detect off   -> battery actually charges (no NTC on board)
 #   ADCs on         -> battery / VBUS / system voltage readable
-#   ALDO1/2/4       -> camera rails (done in camera_power_on, only when needed)
+#
+# Camera rails (ALDO1/2/4) are driven via raw registers below, because
+# LilyGo's MicroPython XPowersLib has NO setALDOxVoltage/enableALDO —
+# their own camera example calls methods that don't exist. Register map
+# is the published AXP2101 layout (matches XPowers' Arduino driver).
 #
 # NEVER touch BLDO1. NEVER turn off DC1.
+
+# AXP2101 LDO registers (published hardware map)
+_REG_LDO_ONOFF_CTRL0 = 0x90
+_ALDO_ENABLE_BIT = {1: 0, 2: 1, 4: 3}
+_ALDO_VOL_REG = {1: 0x92, 2: 0x93, 4: 0x95}  # LDO_VOL0/1/3_CTRL
+_ALDO_VOL_MIN = 500
+_ALDO_VOL_STEP = 100
 
 try:
     import XPowersLib
@@ -51,15 +62,45 @@ class PowerUnit:
         p.enableSystemVoltageMeasure()
         return True
 
-    def camera_power_on(self):
-        b, p = self._board, self._pmu
-        p.setALDO1Voltage(b.RAIL_CAM_ALDO1_MV)
-        p.enableALDO(1)
-        p.setALDO2Voltage(b.RAIL_CAM_ALDO2_MV)
-        p.enableALDO(2)
-        p.setALDO4Voltage(b.RAIL_CAM_ALDO4_MV)
-        p.enableALDO(4)
+    # -- modem / GPS rails (sleep control) --
+    def modem_rail(self, on):
+        p = self._pmu
+        if on:
+            p.setDC3Voltage(self._board.RAIL_MODEM_DC3_MV)
+            p.enableDC3()
+        else:
+            p.disableDC(3)
 
+    def gps_antenna(self, on):
+        p = self._pmu
+        if on:
+            p.setBLDO2Voltage(self._board.RAIL_GPS_BLDO2_MV)
+            p.enableBLDO2()
+        else:
+            p.disableBLDO(2)
+
+    # -- camera rails (raw registers — see module docstring) --
+    def _set_aldo(self, n, mv):
+        if mv % _ALDO_VOL_STEP or not (_ALDO_VOL_MIN <= mv <= 3500):
+            raise ValueError("ALDO%d bad voltage %d" % (n, mv))
+        p = self._pmu
+        reg = _ALDO_VOL_REG[n]
+        val = p.readRegister(reg) & 0xE0
+        val |= (mv - _ALDO_VOL_MIN) // _ALDO_VOL_STEP
+        p.writeRegister(reg, val)
+        p.setRegisterBit(_REG_LDO_ONOFF_CTRL0, _ALDO_ENABLE_BIT[n])
+
+    def camera_power_on(self):
+        b = self._board
+        self._set_aldo(1, b.RAIL_CAM_ALDO1_MV)
+        self._set_aldo(2, b.RAIL_CAM_ALDO2_MV)
+        self._set_aldo(4, b.RAIL_CAM_ALDO4_MV)
+
+    def camera_power_off(self):
+        for n in (1, 2, 4):
+            self._pmu.disableALDO(n)
+
+    # -- battery --
     def battery_mv(self):
         return self._pmu.getBattVoltage()
 
