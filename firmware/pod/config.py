@@ -22,6 +22,3 @@ GPS_MODEM_SETTLE_MS = 2000    # pause between GNSS-off and cellular-on
                               # (SIM7080G can't do both at once)
 MODEM_CMD_TIMEOUT_S = 10
 MMS_RETRIES = 1               # then fall back to SMS-only with "photos pending"
-
-# ---- power ----
-DEEP_SLEEP_BETWEEN_ALERTS = True  # wake on button press only; sips the 2000mAh LiPo
