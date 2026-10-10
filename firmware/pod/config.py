@@ -4,11 +4,13 @@
 
 # ---- parent / carrier (FILL THESE IN before flashing) ----
 PARENT_NUMBER = "+18165558418"   # parent's mobile — receives the MMS + SMS
-# NOTE: LilyGo's ATDebug example drives MMS via the carrier MMSC with
-# AT+CMMSINIT/AT+CMMSDOWN/AT+CMMSSEND. The exact MMSC/proxy AT set is
-# carrier-specific — fill from the $10/mo line's carrier and validate on
+# DRAFT: the MMSC/proxy AT set is carrier-specific — fill from the $10/mo
+# line's carrier and validate every line against the SIM7080G AT manual on
 # the bench (buy list kill criterion: flaky MMS = switch carriers first).
 CARRIER_APN = "REPLACE_WITH_CARRIER_APN"
+CARRIER_MMSC_URL = "REPLACE_WITH_CARRIER_MMSC_URL"
+CARRIER_MMS_PROXY = "REPLACE_WITH_PROXY_IP"
+CARRIER_MMS_PROXY_PORT = 8080
 
 # ---- behavior ----
 BUTTON_HOLD_SECONDS = 2.0     # hold-to-trigger; kills accidental presses
