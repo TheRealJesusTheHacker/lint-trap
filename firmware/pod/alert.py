@@ -57,7 +57,7 @@ class AlertPod:
         self._hal.gps.power_on()
 
     def _tick_acquiring(self, now):
-        if now - self._t0 > self._cfg.GPS_FIX_TIMEOUT_S * 1000:
+        if self._clock.diff_ms(now, self._t0) > self._cfg.GPS_FIX_TIMEOUT_S * 1000:
             self._end_acquiring(now)  # give up on GPS, keep moving
             return
         fix = self._hal.gps.get_fix(timeout_s=5)
@@ -82,7 +82,7 @@ class AlertPod:
         self.state = SENDING
 
     def _tick_sending(self, now):
-        if now < self._settle_until:
+        if self._clock.diff_ms(self._settle_until, now) > 0:
             return  # modem still settling after GNSS shutdown
         loc = self._location_text()
         maps = self._maps_link()
