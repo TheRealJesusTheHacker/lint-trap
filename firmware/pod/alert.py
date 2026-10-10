@@ -24,6 +24,7 @@ class AlertPod:
         self._lat = None
         self._lon = None
         self._photos = []
+        self._settle_until = 0
         self.last_result = ""
 
     def attach_button(self, button):
@@ -57,14 +58,19 @@ class AlertPod:
 
     def _tick_acquiring(self, now):
         if now - self._t0 > self._cfg.GPS_FIX_TIMEOUT_S * 1000:
-            self.state = CAPTURING  # give up on GPS, keep moving
-            self._hal.gps.power_off()
+            self._end_acquiring(now)  # give up on GPS, keep moving
             return
         fix = self._hal.gps.get_fix(timeout_s=5)
         if fix:
             self._lat, self._lon = fix
-            self._hal.gps.power_off()
-            self.state = CAPTURING
+            self._end_acquiring(now)
+
+    def _end_acquiring(self, now):
+        self._hal.gps.power_off()
+        # SIM7080G can't run GNSS and cellular together — let the
+        # modem settle before it attaches.
+        self._settle_until = now + self._cfg.GPS_MODEM_SETTLE_MS
+        self.state = CAPTURING
 
     def _tick_capturing(self, now):
         for _ in range(self._cfg.PHOTO_COUNT):
@@ -76,6 +82,8 @@ class AlertPod:
         self.state = SENDING
 
     def _tick_sending(self, now):
+        if now < self._settle_until:
+            return  # modem still settling after GNSS shutdown
         loc = self._location_text()
         maps = self._maps_link()
         sms_body = "HOODIE ALERT from your child. " + loc + " " + maps
