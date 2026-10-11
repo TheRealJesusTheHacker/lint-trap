@@ -1,0 +1,409 @@
+# Pytest suite for the hoodie-pod proof model.
+#
+# Runs the SAME pod/ alert logic as sim/run.py against the PC mocks —
+# pure Python, no hardware needed. Covers the golden path, every rung
+# of the fallback ladder, the hold-to-trigger button, the HAL contract,
+# and wrap-safe timing (MicroPython ticks_ms() wraps ~every 12 days,
+# so all time math must go through Clock.diff_ms).
+import glob
+import os
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+from pod import alert, button, config, hal  # noqa: E402
+from sim import mock_hal  # noqa: E402
+
+FIRMWARE_DIR = Path(__file__).resolve().parent.parent
+
+
+# ---------------------------------------------------------------- fixtures
+
+
+@pytest.fixture()
+def outbox(tmp_path, monkeypatch):
+    """Redirect the mock modem's outbox into a temp dir per test."""
+    box = tmp_path / "outbox"
+    box.mkdir()
+    monkeypatch.setattr(mock_hal, "OUTBOX", str(box))
+    return box
+
+
+@pytest.fixture()
+def fast_cfg(monkeypatch):
+    """Shrink the real-world timings so the suite stays quick.
+
+    Values mirror config.py's ratios; one test below keeps the true
+    2-second hold to prove the documented behavior.
+    """
+    monkeypatch.setattr(config, "BUTTON_HOLD_SECONDS", 0.3)
+    monkeypatch.setattr(config, "GPS_FIX_TIMEOUT_S", 3)
+    monkeypatch.setattr(config, "GPS_MODEM_SETTLE_MS", 100)
+    return config
+
+
+def drive_alert(pod, btn, hold_s=0.3, tick_ms=50, timeout_s=30):
+    """Hold the mock button and tick the pod until it reaches DONE."""
+    btn.held = True
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        pod.tick()
+        if pod.state == alert.DONE:
+            btn.held = False
+            return pod.last_result
+        time.sleep(tick_ms / 1000.0)
+    raise TimeoutError("pod never reached DONE")
+
+
+def outbox_files(outbox, pattern):
+    return sorted(glob.glob(os.path.join(str(outbox), pattern)))
+
+
+def read(path):
+    with open(path) as f:
+        return f.read()
+
+
+# ------------------------------------------------------------- golden path
+
+
+def test_golden_path(outbox, fast_cfg):
+    """2s hold -> GPS fix -> 3 photos -> MMS + SMS with maps link."""
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=True sms=True photos=3"
+
+    mms = outbox_files(outbox, "mms_*.txt")
+    sms = outbox_files(outbox, "sms_*.txt")
+    photos = outbox_files(outbox, "photo_*.jpg")
+    assert len(mms) == 1 and len(sms) == 1 and len(photos) == 3
+
+    sms_text = read(sms[0])
+    assert "HOODIE ALERT" in sms_text
+    assert "maps.google.com/?q=" in sms_text
+    assert str(mock_hal.TEST_LAT)[:6] in sms_text
+    assert "[ATTACHED: 3 JPEG photos]" in read(mms[0])
+
+
+def test_real_two_second_hold(outbox, fast_cfg, monkeypatch):
+    """The documented hold time really is 2 seconds on unpatched config."""
+    monkeypatch.setattr(config, "BUTTON_HOLD_SECONDS", 2.0)
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.1)
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pb = button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    pod.attach_button(pb)
+
+    mock_btn.held = True
+    t0 = time.monotonic()
+    fired_after = None
+    while time.monotonic() - t0 < 3.0:
+        now = clock.now_ms()
+        if pb.update(now) and fired_after is None:
+            fired_after = time.monotonic() - t0
+        pod.tick()
+        time.sleep(0.02)
+    mock_btn.held = False
+
+    assert fired_after is not None, "2s hold never fired the alert"
+    assert fired_after >= 2.0, "fired before the full hold elapsed"
+
+
+# ------------------------------------------------------ fallback ladder
+
+
+def test_no_mms_falls_back_to_sms(outbox, fast_cfg):
+    """MMS rejected -> retry once -> SMS-only with PHOTOS PENDING."""
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(fail_mms=True, gps_delay_s=0.5)
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=False sms=True photos=3"
+
+    assert outbox_files(outbox, "mms_*.txt") == []
+    sms = outbox_files(outbox, "sms_*.txt")
+    assert len(sms) == 1
+    assert "PHOTOS PENDING" in read(sms[0])
+    # photos=3 in the result above proves the 3 JPEGs were captured in
+    # memory — only the MMS transport fell back, not the camera.
+
+
+def test_no_gps_fix_still_sends_flagged(outbox, fast_cfg):
+    """No fix in the timeout -> alert goes out anyway, flagged."""
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_fail=True)
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=True sms=True photos=3"
+
+    sms = outbox_files(outbox, "sms_*.txt")
+    assert len(sms) == 1
+    sms_text = read(sms[0])
+    assert "no GPS fix" in sms_text
+    assert "maps.google.com" not in sms_text  # no coords, no link
+
+
+def test_camera_failure_sends_location_only(outbox, fast_cfg):
+    """Camera dies -> location-only alert still goes out (no MMS)."""
+
+    class DeadCamera:
+        def capture_jpeg(self, quality):
+            raise RuntimeError("simulated OV2640 failure")
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    pod_hal.camera = DeadCamera()
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=False sms=True photos=0"
+
+    sms = outbox_files(outbox, "sms_*.txt")
+    assert len(sms) == 1
+    assert "maps.google.com/?q=" in read(sms[0])  # location beats nothing
+
+
+# ------------------------------------------------------------- the button
+
+
+def test_tap_never_fires(fast_cfg):
+    """A bump shorter than the hold time must never fire an alert."""
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal()
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pb = button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    pod.attach_button(pb)
+
+    fired = False
+    mock_btn.held = True
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 0.1:  # tap: well under the 0.3s hold
+        pod.tick()
+        fired = fired or pb.update(clock.now_ms())
+        time.sleep(0.02)
+    mock_btn.held = False
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 0.5:
+        pod.tick()
+        time.sleep(0.02)
+
+    assert not fired
+    assert pod.state == alert.IDLE
+    assert pod.last_result == ""
+
+
+def test_hold_fires_exactly_once(outbox, fast_cfg):
+    """One deliberate hold -> exactly one alert, even if held longer."""
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.1)
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    mock_btn.held = True
+    completions = 0
+    seen = None
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < 8:  # long enough for two full cycles
+        pod.tick()
+        if pod.state == alert.DONE and pod.last_result != seen:
+            completions += 1
+            seen = pod.last_result
+        time.sleep(0.02)
+    mock_btn.held = False
+
+    assert completions == 1
+    assert seen == "mms=True sms=True photos=3"
+
+
+def test_hold_progress_ramps(fast_cfg):
+    """hold_progress() drives the kid-facing LED: 0.0 -> 1.0."""
+    _hal, clock, mock_btn = mock_hal.build_mock_hal()
+    pb = button.PanicButton(mock_btn, config.BUTTON_HOLD_SECONDS, clock)
+
+    assert pb.hold_progress(clock.now_ms()) == 0.0
+    mock_btn.held = True
+    t0 = time.monotonic()
+    peak = 0.0
+    while time.monotonic() - t0 < 0.6:
+        pb.update(clock.now_ms())
+        peak = max(peak, pb.hold_progress(clock.now_ms()))
+        time.sleep(0.02)
+    mock_btn.held = False
+
+    assert peak == pytest.approx(1.0)
+
+
+# ------------------------------------------------------- wrap-safe timing
+
+
+class WrapClock(hal.Clock):
+    """Mimics MicroPython time.ticks_ms()/ticks_diff(): 30-bit wrap."""
+
+    PERIOD = 2**30
+
+    def __init__(self, start=0):
+        self.t = start
+
+    def now_ms(self):
+        return self.t % self.PERIOD
+
+    def diff_ms(self, newer, older):
+        d = (newer - older) % self.PERIOD
+        return d - self.PERIOD if d >= self.PERIOD // 2 else d
+
+    def advance(self, ms):
+        self.t += ms
+
+
+class FakeButton(hal.ButtonHAL):
+    def __init__(self):
+        self.held = False
+
+    def is_pressed(self):
+        return self.held
+
+
+class FakeGps(hal.GpsHAL):
+    def __init__(self, fix=None):
+        self.fix = fix
+
+    def power_on(self):
+        pass
+
+    def power_off(self):
+        pass
+
+    def get_fix(self, timeout_s):
+        return self.fix
+
+
+class FakeCamera(hal.CameraHAL):
+    def capture_jpeg(self, quality):
+        return b"\xff\xd8fakejpeg\xff\xd9"
+
+
+class FakeModem(hal.ModemHAL):
+    def __init__(self):
+        self.sms = []
+        self.mms = []
+
+    def send_sms(self, number, text):
+        self.sms.append((number, text))
+        return True
+
+    def send_mms(self, number, subject, text, images):
+        self.mms.append((number, subject, text, images))
+        return True
+
+
+class FakeLed(hal.LedHAL):
+    def __init__(self):
+        self.color = "off"
+
+    def set(self, color):
+        self.color = color
+
+
+def wrap_pod(clk, fix=(39.2462, -94.4102)):
+    btn = FakeButton()
+    pod_hal = hal.PodHAL(btn, FakeGps(fix=fix), FakeCamera(), FakeModem(), FakeLed())
+    pod = alert.AlertPod(pod_hal, config, clk)
+    pod.attach_button(button.PanicButton(btn, 2.0, clk))
+    return pod, btn
+
+
+def test_button_hold_fires_across_ticks_wrap():
+    """The 2s hold still measures correctly when ticks_ms() wraps mid-hold."""
+    start = (WrapClock.PERIOD - 500) % WrapClock.PERIOD  # 500ms before wrap
+    clk = WrapClock(start=start)
+    btn_hal = FakeButton()
+    pb = button.PanicButton(btn_hal, 2.0, clk)
+
+    btn_hal.held = True
+    fired_at = None
+    for _ in range(100):  # 5s of pod time, crossing the wrap
+        clk.advance(50)
+        if pb.update(clk.now_ms()):
+            fired_at = clk.now_ms()
+            break
+
+    assert fired_at is not None, "hold never fired across the wrap"
+    assert clk.diff_ms(fired_at, start) >= 2000
+
+
+def test_full_alert_across_ticks_wrap():
+    """Golden path completes when ticks_ms() wraps mid-alert."""
+    clk = WrapClock(start=WrapClock.PERIOD - 1000)  # 1s before wrap
+    pod, btn = wrap_pod(clk)
+    btn.held = True
+    for _ in range(400):  # 20s of pod time
+        clk.advance(50)
+        pod.tick()
+        if pod.state == alert.DONE:
+            break
+    else:
+        pytest.fail("pod never finished across the wrap")
+
+    assert pod.last_result == "mms=True sms=True photos=3"
+
+
+def test_gps_timeout_across_ticks_wrap():
+    """The 90s GPS give-up must also be wrap-safe (raw now+deadline is not)."""
+    clk = WrapClock(start=WrapClock.PERIOD - 1000)
+    pod, btn = wrap_pod(clk, fix=None)  # never fixes
+    btn.held = True
+    for _ in range(2400):  # 120s of pod time, crossing wrap + 90s timeout
+        clk.advance(50)
+        pod.tick()
+        if pod.state == alert.DONE:
+            break
+    else:
+        pytest.fail("pod stuck in ACQUIRING across the wrap")
+
+    assert pod.last_result == "mms=True sms=True photos=3"
+    assert "no GPS fix" in pod._hal.modem.sms[0][1]
+
+
+# ------------------------------------------------- contracts and hygiene
+
+
+def test_hal_contract():
+    """Every platform HAL exposes the five peripherals + wrap-safe clock."""
+    pod_hal, clock, _btn = mock_hal.build_mock_hal()
+    assert isinstance(pod_hal, hal.PodHAL)
+    for name in ("button", "gps", "camera", "modem", "led"):
+        assert getattr(pod_hal, name) is not None, name
+    assert callable(pod_hal.button.is_pressed)
+    assert callable(pod_hal.gps.get_fix)
+    assert callable(pod_hal.camera.capture_jpeg)
+    assert callable(pod_hal.modem.send_sms)
+    assert callable(pod_hal.modem.send_mms)
+    assert callable(pod_hal.led.set)
+    assert callable(clock.now_ms) and callable(clock.diff_ms)
+
+
+def test_carrier_config_placeholders_present():
+    """config.py ships FILL-IN placeholders so real carrier credentials
+    never land in the repo; flashing requires filling them first."""
+    assert config.CARRIER_APN.startswith("REPLACE_WITH")
+    assert config.CARRIER_MMSC_URL.startswith("REPLACE_WITH")
+    assert config.CARRIER_MMS_PROXY.startswith("REPLACE_WITH")
+    assert config.PARENT_NUMBER  # non-empty so the sim has a recipient
+
+
+def test_draft_markers_on_unvalidated_at_sequences():
+    """The SIM7080G AT sequences stay marked DRAFT until bench-validated."""
+    src = (FIRMWARE_DIR / "pod" / "esp32_hal.py").read_text()
+    assert "DRAFT" in src
