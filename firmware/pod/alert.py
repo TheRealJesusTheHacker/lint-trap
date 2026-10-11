@@ -24,7 +24,7 @@ class AlertPod:
         self._lat = None
         self._lon = None
         self._photos = []
-        self._settle_until = 0
+        self._settle_t0 = 0
         self.last_result = ""
 
     def attach_button(self, button):
@@ -68,8 +68,10 @@ class AlertPod:
     def _end_acquiring(self, now):
         self._hal.gps.power_off()
         # SIM7080G can't run GNSS and cellular together — let the
-        # modem settle before it attaches.
-        self._settle_until = now + self._cfg.GPS_MODEM_SETTLE_MS
+        # modem settle before it attaches. Stored as a start time and
+        # compared with diff_ms: ticks_ms() wraps every ~12 days, so a
+        # raw now+settle deadline is not wrap-safe (hal.py contract).
+        self._settle_t0 = now
         self.state = CAPTURING
 
     def _tick_capturing(self, now):
@@ -82,7 +84,8 @@ class AlertPod:
         self.state = SENDING
 
     def _tick_sending(self, now):
-        if self._clock.diff_ms(self._settle_until, now) > 0:
+        if self._clock.diff_ms(now, self._settle_t0) \
+                < self._cfg.GPS_MODEM_SETTLE_MS:
             return  # modem still settling after GNSS shutdown
         loc = self._location_text()
         maps = self._maps_link()
