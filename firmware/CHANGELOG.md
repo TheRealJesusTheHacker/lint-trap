@@ -8,6 +8,20 @@ and the firmware is sim-verified, **not** hardware-validated.
 
 ## [Unreleased]
 
+### Fixed
+
+- Security audit pass 1: AT-command parameter sanitizers in
+  `pod/esp32_hal.py` — dial strings restricted to digits and a leading
+  `+`, quoted-string params (APN, MMSC URL, proxy) reject quotes and
+  control characters, SMS/MMS bodies are stripped of CR/LF/Ctrl-Z, and
+  unsafe values fail closed (`ValueError`, alert stays silent) instead of
+  injecting extra modem commands. 4 new pytest cases in
+  `sim/test_sim.py`; behavior documented under Security in
+  `firmware/README.md`.
+- `pod/pmu.py`: setup note now says to keep `XPowersLib.py`'s MIT license
+  header intact when copying it from LilyGo's repo (the MIT grant
+  requires it).
+
 ### Added
 
 - `sim/test_sim.py`: 14-test pytest suite covering the golden path, every

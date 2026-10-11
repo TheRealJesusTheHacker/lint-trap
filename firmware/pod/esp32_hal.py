@@ -18,6 +18,46 @@ except ImportError:
 from . import config as _cfg
 from . import hal as _hal
 
+# -- AT command safety --
+# Config values (parent number, APN, MMSC URL, proxy) are interpolated
+# into quoted AT strings. A quote or control character in any of them
+# would break out of the string and inject extra modem commands, so
+# these helpers fail closed (ValueError) instead of sending. Legitimate
+# values pass through byte-for-byte untouched; a misconfigured pod stays
+# silent (LED red, alert DONE) rather than dialing something odd.
+
+
+def _at_number(number):
+    """Phone numbers may only carry digits and a leading '+'."""
+    s = str(number).strip()
+    body = s[1:] if s[:1] == "+" else s
+    if not body or any(c < "0" or c > "9" for c in body):
+        raise ValueError("refusing unsafe dial string in AT command")
+    return s
+
+
+def _at_param(value, name):
+    """Quoted-string AT params may not contain quotes or control chars."""
+    s = str(value)
+    for c in s:
+        if c == '"' or ord(c) < 32:
+            raise ValueError("refusing unsafe %s in AT command" % name)
+    return s
+
+
+def _at_text(text):
+    """Strip AT-framing chars from a message body.
+
+    The SMS/MMS body goes out as an AT line ended by Ctrl-Z; an embedded
+    CR/LF/Ctrl-Z would split it into extra AT commands. Legit bodies
+    (fixed alert text + float coordinates) never contain these.
+    """
+    out = []
+    for c in str(text):
+        if c != "\r" and c != "\n" and c != "\x1a":
+            out.append(c)
+    return "".join(out)
+
 
 class _Uart:
     def __init__(self, board):
@@ -125,17 +165,18 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
         u = self._uart
         # The APN was configured in config.py but never sent — without it
         # the PDP context attach below uses a wrong/default APN.
-        u.cmd('AT+CGDCONT=1,"IP","%s"' % _cfg.CARRIER_APN)
+        u.cmd('AT+CGDCONT=1,"IP","%s"' % _at_param(_cfg.CARRIER_APN, "carrier APN"))
         u.cmd("AT+CGATT=1", timeout_ms=30000)
         u.cmd("AT+CNACT=0,1", timeout_ms=30000)
         self._attached = True
 
     def send_sms(self, number, text):
         self._attach()
+        number = _at_number(number)
         u = self._uart
         u.cmd("AT+CMGF=1")
         u.cmd('AT+CMGS="%s"' % number, expect=">")
-        u.cmd(text + chr(26), expect="+CMGS:", timeout_ms=30000)
+        u.cmd(_at_text(text) + chr(26), expect="+CMGS:", timeout_ms=30000)
         return True
 
     def send_mms(self, number, subject, text, images):
@@ -143,14 +184,15 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
         # the bench. The init -> down -> send -> term SHAPE matches SIMCom's
         # documented flow; the MMSC/proxy addressing is carrier-specific.
         self._attach()
+        number = _at_number(number)
         u, c = self._uart, _cfg
         u.cmd("AT+CMMSINIT")
-        u.cmd('AT+CMMSCFG="mmsc","%s"' % c.CARRIER_MMSC_URL)
+        u.cmd('AT+CMMSCFG="mmsc","%s"' % _at_param(c.CARRIER_MMSC_URL, "MMSC URL"))
         u.cmd(
             'AT+CMMSCFG="proxy","%s",%d'
-            % (c.CARRIER_MMS_PROXY, c.CARRIER_MMS_PROXY_PORT)
+            % (_at_param(c.CARRIER_MMS_PROXY, "MMS proxy"), c.CARRIER_MMS_PROXY_PORT)
         )
-        tb = text.encode()
+        tb = _at_text(text).encode()
         u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(tb), expect="CONNECT")
         u.write_all(tb)
         for img in images:

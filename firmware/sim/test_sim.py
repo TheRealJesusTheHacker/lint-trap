@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from pod import alert, button, config, hal  # noqa: E402
+from pod import alert, button, config, esp32_hal, hal  # noqa: E402
 from sim import mock_hal  # noqa: E402
 
 FIRMWARE_DIR = Path(__file__).resolve().parent.parent
@@ -407,3 +407,35 @@ def test_draft_markers_on_unvalidated_at_sequences():
     """The SIM7080G AT sequences stay marked DRAFT until bench-validated."""
     src = (FIRMWARE_DIR / "pod" / "esp32_hal.py").read_text()
     assert "DRAFT" in src
+
+
+# ------------------------------------------------- AT command safety
+
+
+def test_at_number_accepts_real_numbers():
+    assert esp32_hal._at_number("+18165558418") == "+18165558418"
+    assert esp32_hal._at_number("8165558418") == "8165558418"
+
+
+def test_at_number_rejects_injection():
+    """A quote or control char in the dial string would escape the quoted
+    AT string and inject modem commands — refuse it instead."""
+    for bad in ('+1";AT+CMGS="x', "1\rATZ", "", "+", "++1"):
+        with pytest.raises(ValueError):
+            esp32_hal._at_number(bad)
+
+
+def test_at_param_rejects_quotes_and_control_chars():
+    for bad in ('apn";ATZ', "apn\r\n", "apn\t"):
+        with pytest.raises(ValueError):
+            esp32_hal._at_param(bad, "carrier param")
+    assert (
+        esp32_hal._at_param("fast.t-mobile.com", "carrier param") == "fast.t-mobile.com"
+    )
+
+
+def test_at_text_strips_framing_chars():
+    """The SMS/MMS body is an AT line ended by Ctrl-Z; embedded CR/LF/
+    Ctrl-Z would split it into extra AT commands — strip them."""
+    assert esp32_hal._at_text("HOODIE ALERT plain text") == "HOODIE ALERT plain text"
+    assert esp32_hal._at_text("a\r\nb\x1ac") == "abc"
