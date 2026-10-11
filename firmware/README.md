@@ -32,8 +32,9 @@ firmware/
 2. Copy `pod/` to the board. Copy LilyGo's MIT `lib/XPowersLib.py`
    (from [LilyGo-T-SIM7080G-MicroPython](https://github.com/Xinyuan-LilyGO/LilyGo-T-SIM7080G-MicroPython))
    next to it — `pmu.py` wraps it.
-3. Fill in `pod/config.py` (parent number, carrier APN).
-4. Follow `BRINGUP.md`: `bringup.step1_power()` … `step5_golden()`.
+3. Fill in `pod/config.py` (parent number, carrier APN/MMSC/proxy).
+4. Follow `BRINGUP.md`: `bringup.step1_power()` … `step5_golden()`,
+   including the wake-pin check before installing `main.py`.
 
 ## Run it right now (no hardware needed)
 
@@ -67,8 +68,9 @@ gracefully:
 2. Fill in `pod/config.py` (parent number, carrier APN/MMSC from the $10/mo line).
 3. Validate the AT sequences in `pod/esp32_hal.py` against the SIMCom SIM7080G
    AT Command Manual — they're marked DRAFT until proven on hardware.
-4. Copy `pod/` to the LILYGO T-SIM7080G-S3 as `main.py`, power it, run the
-   bring-up order in the buy list.
+4. Copy `pod/` to the LILYGO T-SIM7080G-S3, then copy `pod/main.py` as the
+   board's root `main.py` (only after step5 + the wake-pin check pass),
+   power it, run the bring-up order in the buy list.
 
 ## Standing constraints (baked in, not optional)
 
