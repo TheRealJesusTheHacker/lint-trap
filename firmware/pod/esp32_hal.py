@@ -25,11 +25,15 @@ class _Uart:
                                rx=machine.Pin(board.MODEM_RX_PIN),
                                timeout=1000)
 
-    def cmd(self, at, expect="OK", timeout_ms=10000):
+    def cmd(self, at, expect="OK", timeout_ms=None):
+        if timeout_ms is None:
+            timeout_ms = _cfg.MODEM_CMD_TIMEOUT_S * 1000
         self._u.write((at + "\r\n").encode())
-        deadline = time.ticks_ms() + timeout_ms
+        # Wrap-safe deadline: ticks_ms() wraps every ~12 days, so compare
+        # elapsed time with ticks_diff instead of adding to the clock.
+        start = time.ticks_ms()
         buf = b""
-        while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+        while time.ticks_diff(time.ticks_ms(), start) < timeout_ms:
             n = self._u.any()
             if n:
                 buf += self._u.read(n)
@@ -116,6 +120,9 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
         if self._gnss_on:
             self.power_off()  # hardware rule: GNSS fully off before cellular
         u = self._uart
+        # The APN was configured in config.py but never sent — without it
+        # the PDP context attach below uses a wrong/default APN.
+        u.cmd('AT+CGDCONT=1,"IP","%s"' % _cfg.CARRIER_APN)
         u.cmd("AT+CGATT=1", timeout_ms=30000)
         u.cmd("AT+CNACT=0,1", timeout_ms=30000)
         self._attached = True
