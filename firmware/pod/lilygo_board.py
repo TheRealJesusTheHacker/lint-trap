@@ -1,7 +1,7 @@
 # Board support: LILYGO T-SIM7080G-S3 (the Phase 1 parts-list board).
 #
 # Pin map from LilyGo's "LILYGO_ESP32S3_CAM_SIM7080G" config, published in
-# their MIT-licensed MicroPython repo (lib/utilities.py) and README pin
+# their MicroPython example repo (lib/utilities.py) and README pin
 # table. Treat as "from the docs" — validate on the bench before trusting.
 #
 # HARDWARE LIMITS (LilyGo docs — these shape the firmware):
