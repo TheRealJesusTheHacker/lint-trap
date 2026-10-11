@@ -439,3 +439,180 @@ def test_at_text_strips_framing_chars():
     Ctrl-Z would split it into extra AT commands — strip them."""
     assert esp32_hal._at_text("HOODIE ALERT plain text") == "HOODIE ALERT plain text"
     assert esp32_hal._at_text("a\r\nb\x1ac") == "abc"
+
+
+# -------------------------------------- pass 2: concurrency + edge cases
+
+
+def test_modem_dies_mid_mms_still_sends_sms(outbox, fast_cfg):
+    """Modem dies mid-MMS (OSError, not a polite False) -> retry once ->
+    SMS-only fallback with PHOTOS PENDING. No crash, no silent drop."""
+
+    class DyingModem(mock_hal.MockModem):
+        def __init__(self):
+            super().__init__(fail_mms=False)
+            self.attempts = 0
+
+        def send_mms(self, number, subject, text, images):
+            self.attempts += 1
+            raise OSError("simulated modem death mid-MMS")
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    dying = DyingModem()
+    pod_hal.modem = dying
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=False sms=True photos=3"
+    assert dying.attempts == config.MMS_RETRIES + 1  # initial + one retry
+    sms = outbox_files(outbox, "sms_*.txt")
+    assert len(sms) == 1
+    assert "PHOTOS PENDING" in read(sms[0])
+
+
+def test_camera_dies_mid_capture_sends_partial(outbox, fast_cfg):
+    """Camera dies on the 2nd of 3 captures -> MMS goes out with the one
+    good frame (evidence beats completeness), result records photos=1."""
+
+    class FlakyCamera:
+        def __init__(self):
+            self.n = 0
+
+        def capture_jpeg(self, quality):
+            self.n += 1
+            if self.n > 1:
+                raise RuntimeError("simulated mid-capture death")
+            return b"\xff\xd8fake\xff\xd9"
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    pod_hal.camera = FlakyCamera()
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=True sms=True photos=1"
+    assert len(outbox_files(outbox, "photo_*.jpg")) == 1
+
+
+def test_button_mashed_during_alert_phases_ignored(outbox, fast_cfg):
+    """Button held/released/mashed during ACQUIRING/CAPTURING/SENDING
+    can't crash the pod or queue a second alert: the button is only
+    polled in IDLE, and a hold fires exactly once."""
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    mock_btn.held = True
+    results = []
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        pod.tick()
+        if pod.state != alert.IDLE:
+            mock_btn.held = not mock_btn.held  # mash during alert phases
+        if pod.state == alert.DONE:
+            results.append(pod.last_result)
+            break
+        time.sleep(0.02)
+
+    assert results == ["mms=True sms=True photos=3"]
+    assert len(outbox_files(outbox, "mms_*.txt")) == 1
+
+
+def test_no_photos_sms_names_camera_failure(outbox, fast_cfg):
+    """Camera dead -> the SMS says NO PHOTOS (camera failed), NOT
+    PHOTOS PENDING: there is nothing pending."""
+
+    class DeadCamera:
+        def capture_jpeg(self, quality):
+            raise RuntimeError("simulated OV2640 failure")
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    pod_hal.camera = DeadCamera()
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=False sms=True photos=0"
+    sms_text = read(outbox_files(outbox, "sms_*.txt")[0])
+    assert "NO PHOTOS" in sms_text
+    assert "PHOTOS PENDING" not in sms_text
+
+
+def test_alert_crash_still_tries_bare_sms(outbox, fast_cfg, monkeypatch):
+    """GPS power_on blows up (dead modem, an exception the fallback
+    ladder doesn't catch) -> run_alert_loop must NOT let it escape:
+    best-effort bare SMS goes out and the loop returns 'pod-error'."""
+    from pod import main as pod_main
+
+    class DeadGps:
+        def power_on(self):
+            raise OSError("simulated dead modem on GPS power-on")
+
+        def power_off(self):
+            pass
+
+        def get_fix(self, timeout_s):
+            return None
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.1)
+    pod_hal.gps = DeadGps()
+
+    class SimTime:
+        @staticmethod
+        def sleep_ms(ms):
+            time.sleep(ms / 1000.0)
+
+    monkeypatch.setattr(pod_main, "time", SimTime)
+
+    mock_btn.held = True  # trigger the alert so GPS power_on runs
+    result = pod_main.run_alert_loop(pod_hal, clock)
+    assert result == "pod-error"
+
+    sms = outbox_files(outbox, "sms_*.txt")
+    assert len(sms) == 1
+    assert "Pod error mid-alert" in read(sms[0])
+
+
+def test_config_validate_flags_placeholders():
+    """Shipped config.py still has the carrier placeholders -> validate()
+    flags exactly those three, and nothing else."""
+    problems = config.validate()
+    assert len(problems) == 3
+    assert all("placeholder" in p for p in problems)
+
+
+def test_config_validate_passes_when_filled(monkeypatch):
+    monkeypatch.setattr(config, "CARRIER_APN", "fast.t-mobile.com")
+    monkeypatch.setattr(config, "CARRIER_MMSC_URL", "http://mmsc.example")
+    monkeypatch.setattr(config, "CARRIER_MMS_PROXY", "10.0.0.1")
+    assert config.validate() == []
+
+
+def test_config_validate_catches_bad_number(monkeypatch):
+    monkeypatch.setattr(config, "PARENT_NUMBER", "")
+    assert any("PARENT_NUMBER" in p for p in config.validate())
+
+
+def test_outbox_pruned_to_cap(outbox):
+    """60 stale files in the outbox -> creating a MockModem prunes to
+    OUTBOX_MAX_FILES so repeated runs can't fill the disk."""
+    for i in range(60):
+        (Path(str(outbox)) / ("old_%02d.txt" % i)).write_text("x")
+        time.sleep(0.001)  # distinct mtimes so pruning is deterministic
+    mock_hal.MockModem()
+    assert len(os.listdir(str(outbox))) <= mock_hal.OUTBOX_MAX_FILES
+
+
+def test_same_second_sends_keep_distinct_files(outbox):
+    """Two sends in the same wall-clock second must not overwrite each
+    other (the old int(time.time()) names collided)."""
+    m = mock_hal.MockModem()
+    m.send_sms("+10000000000", "a")
+    m.send_sms("+10000000000", "b")
+    assert len(outbox_files(outbox, "sms_*.txt")) == 2

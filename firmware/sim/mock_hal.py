@@ -5,11 +5,16 @@
 # Mock modem "sends" into sim/outbox/: mms_<ts>.txt + sms_<ts>.txt,
 # and logs the exact AT commands the real SIM7080G would see.
 
+import contextlib
 import io
 import os
 import time
 
 OUTBOX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outbox")
+
+# Cap the sim outbox: repeated runs / long demo sessions must not grow it
+# without bound. MockModem prunes to the newest OUTBOX_MAX_FILES on init.
+OUTBOX_MAX_FILES = 50
 
 # A test location (Liberty, MO). Override with HOODIE_TEST_LAT/LON env vars.
 TEST_LAT = float(os.environ.get("HOODIE_TEST_LAT", "39.2462"))
@@ -65,10 +70,40 @@ class MockCamera:
 
 
 class MockModem:
+    # Process-wide send counter: filenames stay unique even when several
+    # sends land in the same wall-clock second (int(time.time()) alone
+    # would collide and silently overwrite the earlier message).
+    _seq = 0
+
     def __init__(self, fail_mms=False):
         self.fail_mms = fail_mms
         os.makedirs(OUTBOX, exist_ok=True)
+        self._prune_outbox()
         self.at_log = []
+
+    @classmethod
+    def _stamp(cls):
+        cls._seq += 1
+        return "%d_%03d" % (int(time.time()), cls._seq % 1000)
+
+    @staticmethod
+    def _prune_outbox():
+        """Keep the newest OUTBOX_MAX_FILES so long sim sessions and
+        repeated runs can't fill the disk."""
+        try:
+            files = [
+                os.path.join(OUTBOX, f)
+                for f in os.listdir(OUTBOX)
+                if os.path.isfile(os.path.join(OUTBOX, f))
+            ]
+        except OSError:
+            return
+        if len(files) <= OUTBOX_MAX_FILES:
+            return
+        files.sort(key=lambda p: os.path.getmtime(p))
+        for p in files[: len(files) - OUTBOX_MAX_FILES]:
+            with contextlib.suppress(OSError):
+                os.remove(p)
 
     def _log(self, s):
         self.at_log.append(s)
@@ -77,8 +112,8 @@ class MockModem:
         self._log("AT+CMGF=1 -> OK")
         self._log('AT+CMGS="%s" -> > ' % number)
         self._log("<message>\\x1A -> +CMGS: 1 OK")
-        ts = int(time.time())
-        with open(os.path.join(OUTBOX, "sms_%d.txt" % ts), "w") as f:
+        ts = self._stamp()
+        with open(os.path.join(OUTBOX, "sms_%s.txt" % ts), "w") as f:
             f.write("TO: %s\n\n%s\n" % (number, text))
         return True
 
@@ -90,14 +125,14 @@ class MockModem:
         self._log("AT+CMMSINIT -> OK")
         self._log("AT+CMMSDOWN PIC x%d -> CONNECT ... OK" % len(images))
         self._log('AT+CMMSSEND="%s" -> +CMMSSEND: OK' % number)
-        ts = int(time.time())
-        with open(os.path.join(OUTBOX, "mms_%d.txt" % ts), "w") as f:
+        ts = self._stamp()
+        with open(os.path.join(OUTBOX, "mms_%s.txt" % ts), "w") as f:
             f.write(
                 "TO: %s\nSUBJECT: %s\n\n%s\n\n[ATTACHED: %d JPEG photos]\n"
                 % (number, subject, text, len(images))
             )
             for i, img in enumerate(images):
-                p = os.path.join(OUTBOX, "photo_%d_%d.jpg" % (ts, i + 1))
+                p = os.path.join(OUTBOX, "photo_%s_%d.jpg" % (ts, i + 1))
                 with open(p, "wb") as pf:
                     pf.write(img)
                 f.write("  - %s (%d bytes)\n" % (os.path.basename(p), len(img)))
