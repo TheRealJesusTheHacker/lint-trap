@@ -50,6 +50,13 @@ PMU_SCL_PIN = 7
 PMU_IRQ_PIN = 6
 
 # --- panic button: GPIO45 (see note above — the only safe free pin) ---
+# CRITICAL BENCH CHECK: ESP32-S3 deep-sleep EXT0/EXT1 wake requires an RTC
+# GPIO — that's GPIO0..GPIO21 ONLY (TRM section 10.4.4; anything else gets
+# ESP_ERR_INVALID_ARG). GPIO45 is NOT RTC-capable, so
+# esp32.wake_on_ext0(pin=45) is expected to FAIL: the pod would sleep and
+# never wake on the button. Probe this FIRST on the bench — if it fails,
+# the button must move to a free RTC pin (0..21) or the sleep design must
+# change (light sleep wakes on any GPIO but idles at ~mA, not microamps).
 PIN_BUTTON = 45
 
 # --- power rails (mV) ---
