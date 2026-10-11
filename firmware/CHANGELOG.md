@@ -58,16 +58,13 @@ and the firmware is sim-verified, **not** hardware-validated.
 - `pod/pmu.py`: setup note now says to keep `XPowersLib.py`'s MIT license
   header intact when copying it from LilyGo's repo (the MIT grant
   requires it).
-
-### Added
-
-- `sim/test_sim.py`: 14-test pytest suite covering the golden path, every
-  rung of the fallback ladder (no-MMS, no-GPS, camera failure), the
-  hold-to-trigger button (tap never fires, hold fires exactly once,
-  2-second hold timing, hold-progress ramp), the HAL contract, carrier
-  config placeholders, DRAFT markers on unvalidated AT sequences, and
-  wrap-safe timing regression tests (full alert + 90 s GPS timeout driven
-  across a simulated `ticks_ms()` wrap).
+- `sim/test_sim.py`: original 14-test pytest suite covering the golden
+  path, every rung of the fallback ladder (no-MMS, no-GPS, camera
+  failure), the hold-to-trigger button (tap never fires, hold fires
+  exactly once, 2-second hold timing, hold-progress ramp), the HAL
+  contract, carrier config placeholders, DRAFT markers on unvalidated AT
+  sequences, and wrap-safe timing regression tests (full alert + 90 s
+  GPS timeout driven across a simulated `ticks_ms()` wrap).
 - `.github/workflows/sim-ci.yml`: CI on push/PR — pytest, `ruff check`,
   `black --check` for `pod/` and `sim/`.
 - `firmware/pyproject.toml`: ruff + black config, with documented

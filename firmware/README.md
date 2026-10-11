@@ -66,8 +66,9 @@ drive the whole pipeline across a simulated wrap.
 - **Hold-to-trigger panic button** (`pod/button.py`) — 2.0 s deliberate
   hold (`BUTTON_HOLD_SECONDS`), 50 ms debounce, active-low on GPIO45
   with pull-up. A tap or bump *never* fires; each hold fires *exactly
-  once*; `hold_progress()` returns 0.0–1.0 so the kid-facing LED shows
-  the hold is registering.
+  once*; `hold_progress()` returns 0.0–1.0 so the kid-facing UI can show
+  the hold is registering (today it drives the demo GUI's progress bar;
+  wiring it to a physical status LED is for the custom motherboard).
 - **GNSS positioning** (`pod/esp32_hal.py`) — SIM7080G GNSS via
   `AT+CGNSPWR=1` / `AT+CGNSINF` parsing, up to 90 s for a cold fix
   (`GPS_FIX_TIMEOUT_S`), then the alert goes out anyway flagged
