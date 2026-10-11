@@ -1,0 +1,43 @@
+name: Sim CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  sim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dev deps
+        run: pip install -r firmware/requirements-dev.txt pytest ruff black
+
+      - name: Lint (ruff)
+        run: python -m ruff check firmware/pod/ firmware/sim/
+
+      - name: Format check (black)
+        run: python -m black --check firmware/pod/ firmware/sim/
+
+      - name: Pytest suite
+        run: cd firmware && python -m pytest sim/ -v
+
+      - name: CLI scenarios (golden, --no-mms, --no-gps)
+        run: |
+          cd firmware
+          rm -rf sim/outbox
+          python sim/run.py | grep -q "mms=True sms=True photos=3"
+          rm -rf sim/outbox
+          python sim/run.py --no-mms | grep -q "mms=False sms=True photos=3"
+          rm -rf sim/outbox
+          timeout 120 python sim/run.py --no-gps | grep -q "mms=True sms=True photos=3"
+          rm -rf sim/outbox
