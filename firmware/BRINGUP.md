@@ -38,9 +38,22 @@ bringup.step5_golden()  # hold button 2s -> fix -> 3 JPEGs -> MMS + SMS
 
 ## Then
 
-Copy `pod/main.py` as the board's `main.py`. The pod boots, arms the
-button, and deep-sleeps between alerts (wakes on button press). The 2000mAh
-LiPo idles for weeks; the modem only powers its radio during an alert.
+1. **Wake-pin check (do this before trusting deep sleep):** from the REPL,
+   run:
+   ```python
+   from pod.esp32_hal import sleep_until_button
+   from pod import lilygo_board as B
+   sleep_until_button(B)   # board sleeps — press the panic button
+   ```
+   The board must reboot into the REPL within a second of the press. If it
+   doesn't wake, GPIO45 is not RTC-wake-capable (expected — see the
+   CRITICAL note on PIN_BUTTON in `pod/lilygo_board.py`): stop, move the
+   button to a free RTC pin (GPIO0..21), and update PIN_BUTTON. Do NOT
+   install main.py until the button wakes the board.
+2. Copy `pod/main.py` as the board's `main.py`. The pod boots, arms the
+   button, and deep-sleeps between alerts (wakes on button press). The
+   modem only powers its radio during an alert — measure the actual deep
+   sleep current on the bench to confirm the idle-life estimate.
 
 ## If something fails
 
