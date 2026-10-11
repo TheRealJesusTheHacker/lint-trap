@@ -2,6 +2,7 @@
 # A kid bumps into things all day — a tap must NEVER fire an alert.
 # Only a deliberate hold of BUTTON_HOLD_SECONDS triggers.
 
+
 class PanicButton:
     def __init__(self, hal, hold_s, clock, debounce_ms=50):
         self._hal = hal

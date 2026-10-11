@@ -27,6 +27,7 @@ _ALDO_VOL_STEP = 100
 
 try:
     import XPowersLib
+
     _HAVE_XP = True
 except ImportError:
     _HAVE_XP = False
@@ -37,17 +38,21 @@ class PowerUnit:
         if not _HAVE_XP:
             raise RuntimeError(
                 "XPowersLib missing: copy lib/XPowersLib.py from LilyGo's "
-                "LilyGo-T-SIM7080G-MicroPython repo (MIT) onto the board.")
+                "LilyGo-T-SIM7080G-MicroPython repo (MIT) onto the board."
+            )
         import machine
+
         self._board = board
-        self._i2c = machine.I2C(0, scl=machine.Pin(board.PMU_SCL_PIN),
-                                sda=machine.Pin(board.PMU_SDA_PIN))
+        self._i2c = machine.I2C(
+            0, scl=machine.Pin(board.PMU_SCL_PIN), sda=machine.Pin(board.PMU_SDA_PIN)
+        )
         self._pmu = XPowersLib.XPowersPMU()
 
     def begin(self):
         b = self._board
-        ok = self._pmu.begin(self._i2c, XPowersLib.AXP2101_SLAVE_ADDRESS,
-                             b.PMU_SDA_PIN, b.PMU_SCL_PIN)
+        ok = self._pmu.begin(
+            self._i2c, XPowersLib.AXP2101_SLAVE_ADDRESS, b.PMU_SDA_PIN, b.PMU_SCL_PIN
+        )
         if not ok:
             raise RuntimeError("AXP2101 not responding on I2C")
         p = self._pmu

@@ -6,24 +6,28 @@
 # LilyGo's docs/examples, not a live board.
 
 try:
-    import machine
     import time
+
     import esp32
+    import machine
+
     _ON_DEVICE = True
 except ImportError:
     _ON_DEVICE = False
 
-from . import hal as _hal
 from . import config as _cfg
+from . import hal as _hal
 
 
 class _Uart:
     def __init__(self, board):
-        self._u = machine.UART(board.MODEM_UART_ID,
-                               baudrate=board.MODEM_BAUD,
-                               tx=machine.Pin(board.MODEM_TX_PIN),
-                               rx=machine.Pin(board.MODEM_RX_PIN),
-                               timeout=1000)
+        self._u = machine.UART(
+            board.MODEM_UART_ID,
+            baudrate=board.MODEM_BAUD,
+            tx=machine.Pin(board.MODEM_TX_PIN),
+            rx=machine.Pin(board.MODEM_RX_PIN),
+            timeout=1000,
+        )
 
     def cmd(self, at, expect="OK", timeout_ms=None):
         if timeout_ms is None:
@@ -58,7 +62,7 @@ class _Uart:
         """Write every byte, surviving partial UART writes."""
         off = 0
         while off < len(data):
-            chunk = data[off:off + 1024]
+            chunk = data[off : off + 1024]
             n = self._u.write(chunk)
             if n is None:
                 off += len(chunk)  # port took it all
@@ -70,8 +74,7 @@ class _Uart:
 
 class GpioButton(_hal.ButtonHAL):
     def __init__(self, pin_num):
-        self._pin = machine.Pin(pin_num, machine.Pin.IN,
-                                machine.Pin.PULL_UP)
+        self._pin = machine.Pin(pin_num, machine.Pin.IN, machine.Pin.PULL_UP)
 
     def is_pressed(self):
         return self._pin.value() == 0  # active-low, wired to GND
@@ -143,16 +146,17 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
         u, c = self._uart, _cfg
         u.cmd("AT+CMMSINIT")
         u.cmd('AT+CMMSCFG="mmsc","%s"' % c.CARRIER_MMSC_URL)
-        u.cmd('AT+CMMSCFG="proxy","%s",%d' % (c.CARRIER_MMS_PROXY,
-                                             c.CARRIER_MMS_PROXY_PORT))
+        u.cmd(
+            'AT+CMMSCFG="proxy","%s",%d'
+            % (c.CARRIER_MMS_PROXY, c.CARRIER_MMS_PROXY_PORT)
+        )
         tb = text.encode()
         u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(tb), expect="CONNECT")
         u.write_all(tb)
         for img in images:
             u.cmd('AT+CMMSDOWN="PIC",%d,20000' % len(img), expect="CONNECT")
             u.write_all(img)
-        u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:",
-              timeout_ms=60000)
+        u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:", timeout_ms=60000)
         u.cmd("AT+CMMSTERM")
         return True
 
@@ -172,8 +176,9 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
 
     def get_fix(self, timeout_s):
         try:
-            resp = self._uart.cmd("AT+CGNSINF", expect="+CGNSINF:",
-                                  timeout_ms=int(timeout_s * 1000))
+            resp = self._uart.cmd(
+                "AT+CGNSINF", expect="+CGNSINF:", timeout_ms=int(timeout_s * 1000)
+            )
         except OSError:
             return None
         for line in resp.splitlines():
@@ -196,6 +201,7 @@ class Ov2640(_hal.CameraHAL):
         if self._ready:
             return
         import camera
+
         self._pmu.camera_power_on()
         time.sleep_ms(500)  # rails settle
         for _ in range(5):
@@ -203,8 +209,7 @@ class Ov2640(_hal.CameraHAL):
                 camera.deinit()
             except Exception:
                 pass
-            if camera.init(0, format=camera.JPEG,
-                           framesize=camera.FRAME_VGA):
+            if camera.init(0, format=camera.JPEG, framesize=camera.FRAME_VGA):
                 self._ready = True
                 return
             time.sleep_ms(2000)
@@ -218,6 +223,7 @@ class Ov2640(_hal.CameraHAL):
         # the driver/firmware, not here.
         self._init()
         import camera
+
         return camera.capture()
 
 
@@ -247,14 +253,16 @@ def build_lilygo_pod(board, pmu):
     """Wire the real T-SIM7080G-S3 peripherals. Returns (PodHAL, clock, button_pin)."""
     btn = GpioButton(board.PIN_BUTTON)
     modem = LilyGoModem(board, pmu)
-    return (_hal.PodHAL(btn, modem, Ov2640(pmu), modem, PrintLed()),
-            DeviceClock(), btn.pin)
+    return (
+        _hal.PodHAL(btn, modem, Ov2640(pmu), modem, PrintLed()),
+        DeviceClock(),
+        btn.pin,
+    )
 
 
 def sleep_until_button(board):
     """Deep sleep; wake when the panic button is pressed (active-low).
     On wake the board reboots into main.py and the hold-timer decides."""
-    pin = machine.Pin(board.PIN_BUTTON, machine.Pin.IN,
-                      machine.Pin.PULL_UP)
+    pin = machine.Pin(board.PIN_BUTTON, machine.Pin.IN, machine.Pin.PULL_UP)
     esp32.wake_on_ext0(pin=pin, level=esp32.WAKE_LOW)
     machine.deepsleep()

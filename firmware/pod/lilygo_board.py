@@ -17,8 +17,8 @@
 # --- SIM7080G modem ---
 MODEM_UART_ID = 1
 MODEM_BAUD = 115200
-MODEM_TX_PIN = 5    # ESP32 TX -> modem RXD
-MODEM_RX_PIN = 4    # ESP32 RX <- modem TXD
+MODEM_TX_PIN = 5  # ESP32 TX -> modem RXD
+MODEM_RX_PIN = 4  # ESP32 RX <- modem TXD
 MODEM_PWR_PIN = 41  # PWRKEY, active-low: pull LOW >1s to toggle modem power
 MODEM_DTR_PIN = 42
 MODEM_RI_PIN = 3
@@ -27,15 +27,15 @@ MODEM_RI_PIN = 3
 # NOTE: on LilyGo's MicroPython build these pins are baked into the
 # firmware — camera.init() takes no pin arguments. The constants below
 # document the wiring and are used by the future custom motherboard.
-CAM_PWDN = -1       # not routed
+CAM_PWDN = -1  # not routed
 CAM_RESET = 18
 CAM_XCLK = 8
-CAM_SIOD = 2        # SDA
-CAM_SIOC = 1        # SCL
+CAM_SIOD = 2  # SDA
+CAM_SIOC = 1  # SCL
 CAM_VSYNC = 16
 CAM_HREF = 17
 CAM_PCLK = 12
-CAM_Y2 = 14         # Y2..Y9 in order
+CAM_Y2 = 14  # Y2..Y9 in order
 CAM_Y3 = 47
 CAM_Y4 = 48
 CAM_Y5 = 21
@@ -60,14 +60,14 @@ PMU_IRQ_PIN = 6
 PIN_BUTTON = 45
 
 # --- power rails (mV) ---
-RAIL_MODEM_DC3_MV = 3000   # SIM7080G main power
-RAIL_GPS_BLDO2_MV = 3300   # GPS antenna — must be on for any fix
-RAIL_CAM_ALDO1_MV = 1800   # camera DVDD
-RAIL_CAM_ALDO2_MV = 2800   # camera DVDD
-RAIL_CAM_ALDO4_MV = 3000   # camera AVDD
+RAIL_MODEM_DC3_MV = 3000  # SIM7080G main power
+RAIL_GPS_BLDO2_MV = 3300  # GPS antenna — must be on for any fix
+RAIL_CAM_ALDO1_MV = 1800  # camera DVDD
+RAIL_CAM_ALDO2_MV = 2800  # camera DVDD
+RAIL_CAM_ALDO4_MV = 3000  # camera AVDD
 
 # --- battery ---
 # Buy list: MakerNova 2000mAh LiPo, JST 1.25. VERIFY POLARITY ON ARRIVAL —
 # reversed JST = dead board. The board also has an 18650 holder; either works.
-BATT_LOW_MV = 3400   # warn below this, but ALWAYS still send the alert
+BATT_LOW_MV = 3400  # warn below this, but ALWAYS still send the alert
 BATT_EMPTY_MV = 3200

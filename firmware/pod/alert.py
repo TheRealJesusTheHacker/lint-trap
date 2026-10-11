@@ -8,10 +8,11 @@
 #   camera fails        -> send location-only alert (a location beats nothing)
 
 IDLE = 0
-ACQUIRING = 1   # GPS fix
-CAPTURING = 2   # photos
-SENDING = 3     # MMS then SMS
+ACQUIRING = 1  # GPS fix
+CAPTURING = 2  # photos
+SENDING = 3  # MMS then SMS
 DONE = 4
+
 
 class AlertPod:
     def __init__(self, hal, cfg, clock):
@@ -78,14 +79,14 @@ class AlertPod:
         for _ in range(self._cfg.PHOTO_COUNT):
             try:
                 self._photos.append(
-                    self._hal.camera.capture_jpeg(self._cfg.PHOTO_JPEG_QUALITY))
+                    self._hal.camera.capture_jpeg(self._cfg.PHOTO_JPEG_QUALITY)
+                )
             except Exception:
                 break  # location-only alert still goes out
         self.state = SENDING
 
     def _tick_sending(self, now):
-        if self._clock.diff_ms(now, self._settle_t0) \
-                < self._cfg.GPS_MODEM_SETTLE_MS:
+        if self._clock.diff_ms(now, self._settle_t0) < self._cfg.GPS_MODEM_SETTLE_MS:
             return  # modem still settling after GNSS shutdown
         loc = self._location_text()
         maps = self._maps_link()
@@ -93,13 +94,14 @@ class AlertPod:
 
         mms_ok = False
         if self._photos:
-            for attempt in range(self._cfg.MMS_RETRIES + 1):
+            for _attempt in range(self._cfg.MMS_RETRIES + 1):
                 try:
                     mms_ok = self._hal.modem.send_mms(
                         self._cfg.PARENT_NUMBER,
                         "HOODIE ALERT",
                         loc + " " + maps,
-                        self._photos)
+                        self._photos,
+                    )
                     if mms_ok:
                         break
                 except Exception:
@@ -113,8 +115,14 @@ class AlertPod:
         except Exception:
             sms_ok = False
 
-        self.last_result = "mms=" + str(mms_ok) + " sms=" + str(sms_ok) \
-            + " photos=" + str(len(self._photos))
+        self.last_result = (
+            "mms="
+            + str(mms_ok)
+            + " sms="
+            + str(sms_ok)
+            + " photos="
+            + str(len(self._photos))
+        )
         self._hal.led.set("green" if (mms_ok or sms_ok) else "red")
         self.state = DONE
 

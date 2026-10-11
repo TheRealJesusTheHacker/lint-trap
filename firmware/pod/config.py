@@ -3,7 +3,7 @@
 # board); behavior tunables live here.
 
 # ---- parent / carrier (FILL THESE IN before flashing) ----
-PARENT_NUMBER = "+18165558418"   # parent's mobile — receives the MMS + SMS
+PARENT_NUMBER = "+18165558418"  # parent's mobile — receives the MMS + SMS
 # DRAFT: the MMSC/proxy AT set is carrier-specific — fill from the $10/mo
 # line's carrier and validate every line against the SIM7080G AT manual on
 # the bench (buy list kill criterion: flaky MMS = switch carriers first).
@@ -13,12 +13,12 @@ CARRIER_MMS_PROXY = "REPLACE_WITH_PROXY_IP"
 CARRIER_MMS_PROXY_PORT = 8080
 
 # ---- behavior ----
-BUTTON_HOLD_SECONDS = 2.0     # hold-to-trigger; kills accidental presses
+BUTTON_HOLD_SECONDS = 2.0  # hold-to-trigger; kills accidental presses
 BUTTON_DEBOUNCE_MS = 50
-PHOTO_COUNT = 3               # JPEGs per alert
-PHOTO_JPEG_QUALITY = 70       # small enough for MMS, clear enough to ID a face
-GPS_FIX_TIMEOUT_S = 90        # then send anyway (see alert.py fallback)
-GPS_MODEM_SETTLE_MS = 2000    # pause between GNSS-off and cellular-on
-                              # (SIM7080G can't do both at once)
+PHOTO_COUNT = 3  # JPEGs per alert
+PHOTO_JPEG_QUALITY = 70  # small enough for MMS, clear enough to ID a face
+GPS_FIX_TIMEOUT_S = 90  # then send anyway (see alert.py fallback)
+GPS_MODEM_SETTLE_MS = 2000  # pause between GNSS-off and cellular-on
+# (SIM7080G can't do both at once)
 MODEM_CMD_TIMEOUT_S = 10
-MMS_RETRIES = 1               # then fall back to SMS-only with "photos pending"
+MMS_RETRIES = 1  # then fall back to SMS-only with "photos pending"

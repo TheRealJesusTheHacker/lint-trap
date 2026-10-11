@@ -7,11 +7,12 @@
 # are cut in sleep — the 2000mAh LiPo lasts months, not hours.
 
 import time
-from pod import lilygo_board as B
-from pod import config as C
+
 from pod import alert, button
-from pod.pmu import PowerUnit
+from pod import config as C
+from pod import lilygo_board as B
 from pod.esp32_hal import build_lilygo_pod, sleep_until_button
+from pod.pmu import PowerUnit
 
 
 def run_alert(pmu):
@@ -19,9 +20,11 @@ def run_alert(pmu):
     press was too short to trigger (false wake)."""
     pod_hal, clock, _btn_pin = build_lilygo_pod(B, pmu)
     pod = alert.AlertPod(pod_hal, C, clock)
-    pod.attach_button(button.PanicButton(pod_hal.button,
-                                         C.BUTTON_HOLD_SECONDS, clock,
-                                         C.BUTTON_DEBOUNCE_MS))
+    pod.attach_button(
+        button.PanicButton(
+            pod_hal.button, C.BUTTON_HOLD_SECONDS, clock, C.BUTTON_DEBOUNCE_MS
+        )
+    )
     t0 = clock.now_ms()
     last_seen = ""
     while True:
@@ -29,15 +32,18 @@ def run_alert(pmu):
         if pod.last_result and pod.last_result != last_seen:
             return pod.last_result
         # false wake: released, nothing triggered within 10s
-        if clock.diff_ms(clock.now_ms(), t0) > 10000 \
-                and pod.state == alert.IDLE \
-                and not pod_hal.button.is_pressed():
+        if (
+            clock.diff_ms(clock.now_ms(), t0) > 10000
+            and pod.state == alert.IDLE
+            and not pod_hal.button.is_pressed()
+        ):
             return ""
         time.sleep_ms(20)
 
 
 def go_to_sleep(pmu):
     import machine
+
     # Never arm wake while the button is still held — EXT0 on an
     # already-low pin wakes instantly and we'd reboot-loop / double-alert.
     held = machine.Pin(B.PIN_BUTTON, machine.Pin.IN, machine.Pin.PULL_UP)
@@ -52,6 +58,7 @@ def go_to_sleep(pmu):
 
 def main():
     import machine
+
     print("hoodie pod booting...")
     pmu = PowerUnit(B)
     pmu.begin()

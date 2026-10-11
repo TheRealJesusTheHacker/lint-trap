@@ -1,0 +1,35 @@
+# Lint/format/test config for the hoodie-pod firmware tree.
+#
+# pod/ is MicroPython firmware (LilyGo T-SIM7080G-S3): %-formatting and
+# broad excepts below are deliberate — see the ignore reasons. sim/ is
+# plain CPython and follows the same style so both halves read as one.
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S", "SIM", "C4", "UP"]
+ignore = [
+    # %-formatting is deliberate: guaranteed on every MicroPython build,
+    # while f-strings are not on older firmware. Keep it portable.
+    "UP031",
+    # Blind excepts ARE the fallback ladder (alert.py): any camera/modem
+    # failure must degrade to a smaller alert, never crash the pod.
+    "BLE001",
+    # Intentional silent cleanup: modem power_off() and camera deinit()
+    # retries must not raise during shutdown paths.
+    "S110",
+    # bringup.py is a REPL-driven bench checklist — assert IS the
+    # pass/fail mechanism there, not a production invariant.
+    "S101",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# sim/ is CPython-only; pod/ must stay importable under MicroPython,
+# so rules that assume a full stdlib stay off the firmware half.
+"pod/*.py" = ["UP", "SIM"]

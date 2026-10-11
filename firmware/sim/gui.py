@@ -1,10 +1,12 @@
 # GUI proof model: a big red panic button you press and HOLD with the mouse.
 # Watch the whole golden path play out live: GPS fix -> photos -> MMS + SMS.
 #   python3 sim/gui.py
-import os, sys, time
+import os
+import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from pod import config, alert, button
+from pod import alert, button, config
 from sim import mock_hal
 
 
@@ -14,45 +16,84 @@ def main():
 
     pod_hal, clock, mock_btn = mock_hal.build_mock_hal()
     pod = alert.AlertPod(pod_hal, config, clock)
-    pod.attach_button(button.PanicButton(pod_hal.button,
-                                         config.BUTTON_HOLD_SECONDS, clock))
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
 
     root = tk.Tk()
     root.title("Hoodie Pod — Proof Model")
     root.configure(bg="#0a0e18")
     root.geometry("560x640")
 
-    tk.Label(root, text="HOODIE POD — PROOF MODEL", bg="#0a0e18", fg="#00d4ff",
-             font=("DejaVu Sans", 16, "bold")).pack(pady=12)
-    tk.Label(root, text="Press and HOLD the button for 2 seconds",
-             bg="#0a0e18", fg="#a0acbe",
-             font=("DejaVu Sans", 11)).pack()
+    tk.Label(
+        root,
+        text="HOODIE POD — PROOF MODEL",
+        bg="#0a0e18",
+        fg="#00d4ff",
+        font=("DejaVu Sans", 16, "bold"),
+    ).pack(pady=12)
+    tk.Label(
+        root,
+        text="Press and HOLD the button for 2 seconds",
+        bg="#0a0e18",
+        fg="#a0acbe",
+        font=("DejaVu Sans", 11),
+    ).pack()
 
     progress = tk.DoubleVar(value=0)
-    bar = tk.Scale(root, variable=progress, from_=0, to=100, orient="horizontal",
-                   length=400, showvalue=0, bg="#0a0e18", fg="#00d4ff",
-                   troughcolor="#16202c", highlightthickness=0)
+    bar = tk.Scale(
+        root,
+        variable=progress,
+        from_=0,
+        to=100,
+        orient="horizontal",
+        length=400,
+        showvalue=0,
+        bg="#0a0e18",
+        fg="#00d4ff",
+        troughcolor="#16202c",
+        highlightthickness=0,
+    )
     bar.pack(pady=6)
 
-    btn = tk.Button(root, text="PANIC", bg="#c81e1e", fg="white",
-                    activebackground="#ff2a2a",
-                    font=("DejaVu Sans", 28, "bold"), width=14, height=3,
-                    relief="raised", bd=4)
+    btn = tk.Button(
+        root,
+        text="PANIC",
+        bg="#c81e1e",
+        fg="white",
+        activebackground="#ff2a2a",
+        font=("DejaVu Sans", 28, "bold"),
+        width=14,
+        height=3,
+        relief="raised",
+        bd=4,
+    )
     btn.pack(pady=10)
 
     btn.bind("<ButtonPress-1>", lambda e: setattr(mock_btn, "held", True))
     btn.bind("<ButtonRelease-1>", lambda e: setattr(mock_btn, "held", False))
 
-    log = scrolledtext.ScrolledText(root, height=14, bg="#101828", fg="#e8ecf4",
-                                    font=("DejaVu Sans Mono", 10))
+    log = scrolledtext.ScrolledText(
+        root, height=14, bg="#101828", fg="#e8ecf4", font=("DejaVu Sans Mono", 10)
+    )
     log.pack(fill="both", expand=True, padx=12, pady=8)
 
-    led_lbl = tk.Label(root, text="LED: green", bg="#0a0e18", fg="#50dc90",
-                       font=("DejaVu Sans", 11, "bold"))
+    led_lbl = tk.Label(
+        root,
+        text="LED: green",
+        bg="#0a0e18",
+        fg="#50dc90",
+        font=("DejaVu Sans", 11, "bold"),
+    )
     led_lbl.pack(pady=6)
 
-    STATES = {0: "IDLE", 1: "ACQUIRING GPS", 2: "CAPTURING PHOTOS",
-              3: "SENDING ALERT", 4: "DONE"}
+    STATES = {
+        0: "IDLE",
+        1: "ACQUIRING GPS",
+        2: "CAPTURING PHOTOS",
+        3: "SENDING ALERT",
+        4: "DONE",
+    }
     state = {"last": None, "led": None, "prog": -1}
 
     def say(msg):

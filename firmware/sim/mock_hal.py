@@ -5,7 +5,9 @@
 # Mock modem "sends" into sim/outbox/: mms_<ts>.txt + sms_<ts>.txt,
 # and logs the exact AT commands the real SIM7080G would see.
 
-import os, time, io
+import io
+import os
+import time
 
 OUTBOX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "outbox")
 
@@ -17,6 +19,7 @@ TEST_LON = float(os.environ.get("HOODIE_TEST_LON", "-94.4102"))
 class MockButton:
     def __init__(self):
         self.held = False
+
     def is_pressed(self):
         return self.held
 
@@ -26,10 +29,13 @@ class MockGps:
         self.fix_delay_s = fix_delay_s
         self.fail = fail
         self._t0 = None
+
     def power_on(self):
         self._t0 = time.monotonic()
+
     def power_off(self):
         pass
+
     def get_fix(self, timeout_s):
         if self.fail:
             time.sleep(min(timeout_s, 1))
@@ -43,9 +49,11 @@ class MockGps:
 class MockCamera:
     def __init__(self):
         self.n = 0
+
     def capture_jpeg(self, quality):
         # Stand-in for the OV2640: timestamped test frame via PIL.
         from PIL import Image, ImageDraw
+
         self.n += 1
         img = Image.new("RGB", (640, 480), (20 + self.n * 30, 30, 60))
         d = ImageDraw.Draw(img)
@@ -84,8 +92,10 @@ class MockModem:
         self._log('AT+CMMSSEND="%s" -> +CMMSSEND: OK' % number)
         ts = int(time.time())
         with open(os.path.join(OUTBOX, "mms_%d.txt" % ts), "w") as f:
-            f.write("TO: %s\nSUBJECT: %s\n\n%s\n\n[ATTACHED: %d JPEG photos]\n"
-                    % (number, subject, text, len(images)))
+            f.write(
+                "TO: %s\nSUBJECT: %s\n\n%s\n\n[ATTACHED: %d JPEG photos]\n"
+                % (number, subject, text, len(images))
+            )
             for i, img in enumerate(images):
                 p = os.path.join(OUTBOX, "photo_%d_%d.jpg" % (ts, i + 1))
                 with open(p, "wb") as pf:
@@ -97,6 +107,7 @@ class MockModem:
 class MockLed:
     def __init__(self):
         self.color = "off"
+
     def set(self, color):
         self.color = color
 
@@ -111,7 +122,10 @@ class MockClock:
 
 def build_mock_hal(fail_mms=False, gps_fail=False, gps_delay_s=4):
     from pod import hal as _hal
+
     btn, gps = MockButton(), MockGps(fix_delay_s=gps_delay_s, fail=gps_fail)
-    return (_hal.PodHAL(btn, gps, MockCamera(),
-                        MockModem(fail_mms=fail_mms), MockLed()),
-            MockClock(), btn)
+    return (
+        _hal.PodHAL(btn, gps, MockCamera(), MockModem(fail_mms=fail_mms), MockLed()),
+        MockClock(),
+        btn,
+    )
