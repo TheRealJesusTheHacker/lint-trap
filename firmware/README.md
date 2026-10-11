@@ -134,7 +134,7 @@ drive the whole pipeline across a simulated wrap.
 | Camera fails | Location-only alert still goes out (no MMS, SMS carries the fix); SMS says "NO PHOTOS — camera failed" |
 | Camera dies mid-capture | MMS goes out with whatever frames were captured (partial evidence beats none) |
 | Alert crashes mid-run (e.g. dead modem on GPS power-on) | Best-effort bare SMS, LED red, result `pod-error` — never dies silently |
-| Misconfigured number/APN (empty PARENT_NUMBER, bad APN) | Fails closed *before* the modem attach (no wasted radio time): silent pod, LED red, `mms=False sms=False` |
+| Misconfigured number/APN (empty PARENT_NUMBER, unsafe APN) | The dial-string/APN sanitizers fail closed *before* the modem attach (no wasted radio time): silent pod, LED red, `mms=False sms=False`. A leftover `REPLACE_WITH_` placeholder passes the sanitizer (no quotes/control chars) and fails closed only after a doomed attach — `config.validate()` flags it as a boot WARNING |
 | Accidental bump / short press | 2-second hold requirement — taps never fire |
 | Button pressed during alert phases | Ignored — the button is only polled in IDLE; each hold fires exactly once |
 | Low battery | Warns at boot, but the alert still sends |
@@ -162,7 +162,7 @@ sim/
   mock_hal.py      mock button/GPS/camera/modem/LED/clock; modem writes sim/outbox/
   run.py           CLI: golden path + --no-mms / --no-gps fallback scenarios
   gui.py           tkinter demo: hold the big red button with your mouse
-  test_sim.py      14-test pytest suite (CI) — scenarios, ladder, button, wraps
+  test_sim.py      28-test pytest suite (CI) — scenarios, ladder, button, wraps
 BRINGUP.md         bench procedure: polarity, SIM, antennas, steps, fault table
 HARDWARE.md        product architecture: one motherboard + wired peripherals
 CHANGELOG.md       what changed, by date (no releases cut yet)
@@ -177,7 +177,7 @@ python3 sim/run.py            # golden path: hold → GPS → photos → MMS+SMS
 python3 sim/run.py --no-mms   # MMS fails → SMS fallback with "PHOTOS PENDING"
 python3 sim/run.py --no-gps   # no GPS fix → alert still goes out, flagged
 python3 sim/gui.py            # interactive demo with a hold-to-trigger button
-python3 -m pytest sim/ -v     # the full 14-test suite
+python3 -m pytest sim/ -v     # the full 28-test suite
 ```
 
 Sent "messages" land in `sim/outbox/` — the MMS text file, 3 JPEGs, the SMS
