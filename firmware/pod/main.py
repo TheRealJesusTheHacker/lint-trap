@@ -19,6 +19,20 @@ def run_alert(pmu):
     """Woke by the button. Returns the alert result string, or '' if the
     press was too short to trigger (false wake)."""
     pod_hal, clock, _btn_pin = build_lilygo_pod(B, pmu)
+    return run_alert_loop(pod_hal, clock)
+
+
+def run_alert_loop(pod_hal, clock):
+    """Drive one wake cycle: hold timer -> alert -> result.
+
+    Returns the alert result string, '' on a false wake, or 'pod-error'
+    if the alert crashed mid-run. NEVER raises: an uncaught exception
+    here (e.g. GPS power-on against a dead modem) would escape main()
+    and the alert would die silently — on the board, the reboot lands in
+    the power-on branch and the pod sleeps without ever sending. So on a
+    crash we attempt a best-effort bare SMS first, then report the
+    failure so the boot log shows it.
+    """
     pod = alert.AlertPod(pod_hal, C, clock)
     pod.attach_button(
         button.PanicButton(
@@ -28,7 +42,23 @@ def run_alert(pmu):
     t0 = clock.now_ms()
     last_seen = ""
     while True:
-        pod.tick()
+        try:
+            pod.tick()
+        except Exception as e:
+            print("alert crashed mid-run: %r" % (e,))
+            try:
+                pod_hal.modem.send_sms(
+                    C.PARENT_NUMBER,
+                    "HOODIE ALERT from your child. Pod error mid-alert "
+                    "- call your child now.",
+                )
+            except Exception:
+                pass
+            try:
+                pod_hal.led.set("red")
+            except Exception:
+                pass
+            return "pod-error"
         if pod.last_result and pod.last_result != last_seen:
             return pod.last_result
         # false wake: released, nothing triggered within 10s
@@ -66,12 +96,16 @@ def main():
     print("battery: %d mV (%d%%)" % (mv, pmu.battery_percent()))
     if mv < B.BATT_LOW_MV:
         print("WARNING: low battery — alert will still send, charge soon")
+    for problem in C.validate():
+        print("WARNING: config problem — %s" % problem)
 
     if machine.reset_cause() == machine.DEEPSLEEP_RESET:
         # Button wake: no delays, every second counts.
         print("woke by button — arming hold timer")
         result = run_alert(pmu)
-        if result:
+        if result == "pod-error":
+            print("alert FAILED (pod error) — check the log above")
+        elif result:
             print("alert complete: %s" % result)
         else:
             print("short press — back to sleep")

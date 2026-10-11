@@ -22,7 +22,7 @@ This tree holds **two halves that run the same logic**:
   the real modem would see.
 
 > **Verification status — read this first.** The firmware is
-> **sim-verified, NOT hardware-validated.** The 14-test pytest suite and
+> **sim-verified, NOT hardware-validated.** The 28-test pytest suite and
 > the three CLI scenarios below prove the logic against mocks. The
 > SIM7080G AT sequences in `pod/esp32_hal.py` are marked **DRAFT** until
 > proven against the SIMCom AT manual on the bench. The deep-sleep wake
@@ -88,8 +88,10 @@ drive the whole pipeline across a simulated wrap.
   SMS fallback.
 - **SMS alert with maps link** — `AT+CMGF=1` / `AT+CMGS`, always sent:
   `HOODIE ALERT from your child. LOCATION: <lat>, <lon>
-  https://maps.google.com/?q=<lat>,<lon>`. If MMS failed, it appends
-  `PHOTOS PENDING — MMS failed, call your child now`.
+  https://maps.google.com/?q=<lat>,<lon>`. If MMS failed after photos
+  were captured, it appends `PHOTOS PENDING - MMS failed, call your
+  child now`; if the camera failed too (no photos at all), it says
+  `NO PHOTOS - camera failed` instead of claiming photos are pending.
 - **The fallback ladder** — an alert that dies halfway is worse than no
   alert. Every phase degrades (see table below); a low battery
   (< 3400 mV) warns at boot but the alert *still sends*.
@@ -114,9 +116,12 @@ drive the whole pipeline across a simulated wrap.
   a subsystem before the next depends on it, plus a fault table and a
   carrier kill criterion (flaky MMS = switch carriers first).
 - **PC proof model** (`sim/`) — mocks for all five peripherals;
-  the mock modem writes `sim/outbox/` (`mms_<ts>.txt`,
-  `sms_<ts>.txt`, `photo_<ts>_1..3.jpg`) and logs the AT commands the
-  real SIM7080G would see. CLI runner + an interactive tkinter demo
+  the mock modem writes `sim/outbox/` (`mms_<ts>_<seq>.txt`,
+  `sms_<ts>_<seq>.txt`, `photo_<ts>_<seq>_1..3.jpg` — a sequence counter
+  keeps same-second sends from overwriting each other) and logs the AT
+  commands the real SIM7080G would see. The outbox is pruned to the
+  newest 50 files on each run so repeated sim sessions can't fill the
+  disk. CLI runner + an interactive tkinter demo
   with a hold-to-trigger mouse button and live progress bar.
 
 ### The fallback ladder
@@ -125,8 +130,13 @@ drive the whole pipeline across a simulated wrap.
 |---|---|
 | No GPS fix in 90 s | Sends anyway, flagged "no GPS fix" (no maps link) |
 | MMS rejected | Retries once, then SMS-only: "PHOTOS PENDING — call your child now" |
-| Camera fails | Location-only alert still goes out (no MMS, SMS carries the fix) |
+| MMS dies mid-send (modem OSError) | Retry once, then SMS-only fallback — same as rejected |
+| Camera fails | Location-only alert still goes out (no MMS, SMS carries the fix); SMS says "NO PHOTOS — camera failed" |
+| Camera dies mid-capture | MMS goes out with whatever frames were captured (partial evidence beats none) |
+| Alert crashes mid-run (e.g. dead modem on GPS power-on) | Best-effort bare SMS, LED red, result `pod-error` — never dies silently |
+| Misconfigured number/APN (empty PARENT_NUMBER, bad APN) | Fails closed *before* the modem attach (no wasted radio time): silent pod, LED red, `mms=False sms=False` |
 | Accidental bump / short press | 2-second hold requirement — taps never fire |
+| Button pressed during alert phases | Ignored — the button is only polled in IDLE; each hold fires exactly once |
 | Low battery | Warns at boot, but the alert still sends |
 | Modem silent | PWRKEY pulse + rail checks (see `BRINGUP.md` fault table) |
 
@@ -135,7 +145,10 @@ drive the whole pipeline across a simulated wrap.
 ```
 pod/
   config.py        parent number, carrier APN/MMSC/proxy, all tunables
-                   (FILL IN the REPLACE_WITH_… placeholders before flashing)
+                   (FILL IN the REPLACE_WITH_… placeholders before flashing;
+                   main.py prints a WARNING at boot for each problem found
+                   by config.validate() — misconfigurations fail closed,
+                   never dial something odd)
   hal.py           the contract: Button/Gps/Camera/Modem/Led/Clock interfaces
   button.py        debounced hold-to-trigger; fires exactly once per hold
   alert.py         the orchestrator: IDLE → GPS → CAPTURE → SEND, with fallbacks
@@ -204,8 +217,11 @@ fires the alert, and sleeps again.
 
 ```bash
 cd firmware
-python3 -m pytest sim/ -v   # 14 tests: golden path, fallback ladder,
-                            # button behavior, HAL contract, ticks-wrap safety
+python3 -m pytest sim/ -v   # 28 tests: golden path, fallback ladder,
+                            # edge cases (modem death, mid-capture camera
+                            # failure, button mashing, alert-crash SMS),
+                            # button behavior, HAL contract, config
+                            # validation, outbox hygiene, ticks-wrap safety
 python3 -m ruff check pod/ sim/
 python3 -m black --check pod/ sim/
 ```

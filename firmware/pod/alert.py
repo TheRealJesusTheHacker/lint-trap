@@ -107,7 +107,12 @@ class AlertPod:
                 except Exception:
                     mms_ok = False
         if not mms_ok:
-            sms_body += " (PHOTOS PENDING - MMS failed, call your child now)"
+            if self._photos:
+                sms_body += " (PHOTOS PENDING - MMS failed, call your child now)"
+            else:
+                # Camera failed too: don't claim photos are "pending" —
+                # there are none. Say so plainly.
+                sms_body += " (NO PHOTOS - camera failed, call your child now)"
 
         sms_ok = False
         try:

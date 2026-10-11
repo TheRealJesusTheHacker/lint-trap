@@ -22,3 +22,53 @@ GPS_MODEM_SETTLE_MS = 2000  # pause between GNSS-off and cellular-on
 # (SIM7080G can't do both at once)
 MODEM_CMD_TIMEOUT_S = 10
 MMS_RETRIES = 1  # then fall back to SMS-only with "photos pending"
+
+
+def _dial_ok(number):
+    """Same dial-string rule the modem HAL enforces (see esp32_hal):
+    digits plus an optional leading '+'."""
+    s = str(number).strip()
+    body = s[1:] if s[:1] == "+" else s
+    return bool(body) and all("0" <= c <= "9" for c in body)
+
+
+def validate():
+    """Fail-fast config check. Returns a list of problem strings
+    (empty = good to flash).
+
+    Called at boot by main.py: problems print as WARNINGs but never block
+    the pod — a misconfigured pod still arms the button, it just can't
+    send. Catching a typo'd PARENT_NUMBER or a leftover REPLACE_WITH_
+    placeholder at boot beats burning minutes of modem time on a doomed
+    attach at 2am."""
+    problems = []
+    if not _dial_ok(PARENT_NUMBER):
+        problems.append("PARENT_NUMBER %r is not a dialable number" % (PARENT_NUMBER,))
+    for name, value in (
+        ("CARRIER_APN", CARRIER_APN),
+        ("CARRIER_MMSC_URL", CARRIER_MMSC_URL),
+        ("CARRIER_MMS_PROXY", CARRIER_MMS_PROXY),
+    ):
+        if str(value).startswith("REPLACE_WITH"):
+            problems.append("%s still has the REPLACE_WITH_ placeholder" % name)
+    if not isinstance(CARRIER_MMS_PROXY_PORT, int) or not (
+        1 <= CARRIER_MMS_PROXY_PORT <= 65535
+    ):
+        problems.append(
+            "CARRIER_MMS_PROXY_PORT %r is not a valid port" % (CARRIER_MMS_PROXY_PORT,)
+        )
+    if BUTTON_HOLD_SECONDS <= 0:
+        problems.append("BUTTON_HOLD_SECONDS must be > 0")
+    if BUTTON_DEBOUNCE_MS < 0:
+        problems.append("BUTTON_DEBOUNCE_MS must be >= 0")
+    if PHOTO_COUNT < 1:
+        problems.append("PHOTO_COUNT must be >= 1")
+    if GPS_FIX_TIMEOUT_S <= 0:
+        problems.append("GPS_FIX_TIMEOUT_S must be > 0")
+    if GPS_MODEM_SETTLE_MS < 0:
+        problems.append("GPS_MODEM_SETTLE_MS must be >= 0")
+    if MODEM_CMD_TIMEOUT_S <= 0:
+        problems.append("MODEM_CMD_TIMEOUT_S must be > 0")
+    if MMS_RETRIES < 0:
+        problems.append("MMS_RETRIES must be >= 0")
+    return problems

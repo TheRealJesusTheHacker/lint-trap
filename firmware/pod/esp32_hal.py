@@ -159,20 +159,26 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
     def _attach(self):
         if self._attached:
             return
+        # Fail fast on a bad APN BEFORE the PWRKEY pulse and the 30s+
+        # attach timeouts: a misconfigured pod burns battery and minutes
+        # on a PDP context that can never come up.
+        apn = _at_param(_cfg.CARRIER_APN, "carrier APN")
         self._ensure_alive()
         if self._gnss_on:
             self.power_off()  # hardware rule: GNSS fully off before cellular
         u = self._uart
         # The APN was configured in config.py but never sent — without it
         # the PDP context attach below uses a wrong/default APN.
-        u.cmd('AT+CGDCONT=1,"IP","%s"' % _at_param(_cfg.CARRIER_APN, "carrier APN"))
+        u.cmd('AT+CGDCONT=1,"IP","%s"' % apn)
         u.cmd("AT+CGATT=1", timeout_ms=30000)
         u.cmd("AT+CNACT=0,1", timeout_ms=30000)
         self._attached = True
 
     def send_sms(self, number, text):
-        self._attach()
+        # Validate the dial string before attach: a bad PARENT_NUMBER
+        # fails closed here, not after a minute of wasted radio time.
         number = _at_number(number)
+        self._attach()
         u = self._uart
         u.cmd("AT+CMGF=1")
         u.cmd('AT+CMGS="%s"' % number, expect=">")
@@ -183,8 +189,8 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
         # DRAFT — validate every line against the SIM7080G AT manual on
         # the bench. The init -> down -> send -> term SHAPE matches SIMCom's
         # documented flow; the MMSC/proxy addressing is carrier-specific.
+        number = _at_number(number)  # fail fast, before the modem wakes up
         self._attach()
-        number = _at_number(number)
         u, c = self._uart, _cfg
         u.cmd("AT+CMMSINIT")
         u.cmd('AT+CMMSCFG="mmsc","%s"' % _at_param(c.CARRIER_MMSC_URL, "MMSC URL"))
