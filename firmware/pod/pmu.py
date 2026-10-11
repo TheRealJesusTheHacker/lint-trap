@@ -2,8 +2,9 @@
 #
 # SETUP REQUIRED: copy lib/XPowersLib.py from LilyGo's MIT-licensed repo
 # (https://github.com/Xinyuan-LilyGO/LilyGo-T-SIM7080G-MicroPython)
-# onto the board's filesystem before running. This module wraps it with
-# the pod's exact power-up sequence — nothing more.
+# onto the board's filesystem before running. Keep the file's license
+# header intact when you copy it — the MIT grant requires it.
+# This module wraps it with the pod's exact power-up sequence — nothing more.
 #
 # Sequence (from LilyGo's own MicroPython power example):
 #   DC3 3000mV on  -> modem lives

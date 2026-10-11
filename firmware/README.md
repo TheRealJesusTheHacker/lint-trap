@@ -229,6 +229,19 @@ and broad `except Exception` in the alert path (the fallback ladder
 See [`../SECURITY.md`](../SECURITY.md). Report security issues to
 **Sentinelsafeguard@outlook.com** — do not open a public issue.
 
+### AT command safety (`pod/esp32_hal.py`)
+
+Phone numbers, APN, MMSC URL, and proxy are interpolated into quoted AT
+strings, so the modem HAL sanitizes them before sending: dial strings may
+only carry digits and a leading `+`; quoted-string params may not contain
+quotes or control characters; message bodies are stripped of CR/LF/Ctrl-Z
+(the SMS/MMS body goes out as an AT line ended by Ctrl-Z, so an embedded
+framing char would split it into extra AT commands). Anything unsafe
+raises `ValueError` and the pod **fails closed** — no alert goes out, the
+LED goes red, and the result records `mms=False sms=False` instead of
+dialing something odd. Fill `config.py` placeholders carefully; a typo in
+`PARENT_NUMBER` means a silent pod, not a wrong-number dial.
+
 ## Business contact
 
 **Sentinelsafeguard@outlook.com** — Sentinel Safeguard LLC.
