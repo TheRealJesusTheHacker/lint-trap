@@ -270,3 +270,30 @@ If this tool earned its keep, BTC is welcome:
 ```
 bc1qvydns2fmyjzj55wzxq7ta28nxdhcmu9l9m6yg0
 ```
+
+## License
+
+This project is licensed under the MIT License — see [`../LICENSE`](../LICENSE).
+
+Copyright (c) 2026 JesusTheHacker.
+
+### Third-party components
+
+Nothing third-party is vendored in this repo: third-party code is pulled at
+board-setup time (see "Board setup" above). Keep any license notice in those
+files intact when you copy them onto the board.
+
+- **MicroPython** (the runtime on the T-SIM7080G-S3): MIT license, Damien
+  George / the MicroPython project — <https://micropython.org>.
+- **LilyGo T-SIM7080G-S3 board support** — the pin map in
+  `pod/lilygo_board.py` is taken from LilyGo's published pin table and their
+  MicroPython example repo
+  (<https://github.com/Xinyuan-LilyGO/LilyGo-T-SIM7080G-MicroPython>); AT
+  command sequences in `pod/esp32_hal.py` follow LilyGo's documented
+  examples.
+- **XPowersLib** (AXP2101 PMU driver, `lib/XPowersLib.py`, copied at board
+  setup — not in this repo): the XPowers driver family is authored by Lewis
+  He under MIT (<https://github.com/lewisxhe/XPowersLib>). The LilyGo repo
+  copy currently ships with no license file of its own, so keep whatever
+  license notice the file carries intact when you copy it.
+- **Changelog format** follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
