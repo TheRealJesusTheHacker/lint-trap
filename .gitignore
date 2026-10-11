@@ -3,3 +3,5 @@ __pycache__/
 *.pyo
 sim/outbox/
 .DS_Store
+.env
+.env.*
