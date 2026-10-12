@@ -11,6 +11,7 @@ import time
 from pod import alert, button
 from pod import config as C
 from pod import lilygo_board as B
+from pod import watchdog
 from pod.esp32_hal import build_lilygo_pod, sleep_until_button
 from pod.pmu import PowerUnit
 
@@ -42,6 +43,7 @@ def run_alert_loop(pod_hal, clock):
     t0 = clock.now_ms()
     last_seen = ""
     while True:
+        watchdog.feed()  # WDT backstop: any wedge below reboots the pod
         try:
             pod.tick()
         except Exception as e:
@@ -71,35 +73,55 @@ def run_alert_loop(pod_hal, clock):
         time.sleep_ms(20)
 
 
-def go_to_sleep(pmu):
+def go_to_sleep(pmu, cut_rails=True):
     import machine
 
     # Never arm wake while the button is still held — EXT0 on an
     # already-low pin wakes instantly and we'd reboot-loop / double-alert.
+    # KEPT even though the watchdog backstops it: a stuck-shorted button
+    # is a hardware fault, and sleeping with the pin low would burn the
+    # battery on wake-reboot loops. The WDT fires first only if the pin
+    # never releases.
     held = machine.Pin(B.PIN_BUTTON, machine.Pin.IN, machine.Pin.PULL_UP)
     while held.value() == 0:
+        watchdog.feed()
         time.sleep_ms(50)
-    pmu.camera_power_off()
-    pmu.gps_antenna(False)
-    pmu.modem_rail(False)
-    time.sleep_ms(100)
+    if cut_rails:
+        pmu.camera_power_off()
+        pmu.gps_antenna(False)
+        pmu.modem_rail(False)
+        time.sleep_ms(100)
     sleep_until_button(B)  # never returns; wake = reboot into main()
 
 
 def main():
     import machine
 
+    # Hardware watchdog: any wedge (wedged UART, stuck button, hung PMU
+    # I2C) reboots the pod instead of draining the battery at full draw.
+    watchdog.init()
+
     print("hoodie pod booting...")
-    pmu = PowerUnit(B)
-    pmu.begin()
-    mv = pmu.battery_mv()
-    print("battery: %d mV (%d%%)" % (mv, pmu.battery_percent()))
-    if mv < B.BATT_LOW_MV:
-        print("WARNING: low battery — alert will still send, charge soon")
+    # PMU failures must never veto sleep: deepsleep needs no PMU, and a
+    # pod that can't talk to its power chip must park, not spin.
+    pmu_ok = True
+    pmu = None
+    try:
+        pmu = PowerUnit(B)
+        pmu.begin()
+        mv = pmu.battery_mv()
+    except Exception as e:
+        pmu_ok = False
+        mv = None
+        print("PMU init failed: %r — skipping alert, sleeping anyway" % (e,))
+    if pmu_ok:
+        print("battery: %d mV (%d%%)" % (mv, pmu.battery_percent()))
+        if mv < B.BATT_LOW_MV:
+            print("WARNING: low battery — alert will still send, charge soon")
     for problem in C.validate():
         print("WARNING: config problem — %s" % problem)
 
-    if machine.reset_cause() == machine.DEEPSLEEP_RESET:
+    if machine.reset_cause() == machine.DEEPSLEEP_RESET and pmu_ok:
         # Button wake: no delays, every second counts.
         print("woke by button — arming hold timer")
         result = run_alert(pmu)
@@ -109,18 +131,21 @@ def main():
             print("alert complete: %s" % result)
         else:
             print("short press — back to sleep")
-    else:
+    elif machine.reset_cause() != machine.DEEPSLEEP_RESET:
         # Power-on boot: bench window. Without this, the board sleeps
         # before you can get a REPL, and bringup.py becomes unreachable
         # (deep sleep eats Ctrl+C). Ctrl+C here drops to REPL instead.
         print("power-on boot: 5s REPL window (Ctrl+C), then sleep")
         try:
             for _ in range(50):
+                watchdog.feed()
                 time.sleep_ms(100)
         except KeyboardInterrupt:
             print("REPL mode — pod NOT armed; run: from pod import bringup")
             return
-    go_to_sleep(pmu)
+    elif not pmu_ok:
+        print("PMU down on button wake — alert needs the rails, sleeping")
+    go_to_sleep(pmu, cut_rails=pmu_ok)
 
 
 if __name__ == "__main__":
