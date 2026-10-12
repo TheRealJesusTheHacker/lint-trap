@@ -17,6 +17,7 @@ except ImportError:
 
 from . import config as _cfg
 from . import hal as _hal
+from . import watchdog as _watchdog
 
 # -- AT command safety --
 # Config values (parent number, APN, MMSC URL, proxy) are interpolated
@@ -45,6 +46,17 @@ def _at_param(value, name):
     return s
 
 
+def _at_verb(at):
+    """The AT command verb only (e.g. 'AT+CMGS') — safe for error
+    messages. Cuts at the first '=', '?', or space so dial strings,
+    APNs, and message bodies never land in exception text."""
+    s = str(at).strip()
+    for i, c in enumerate(s):
+        if c == "=" or c == "?" or c == " ":
+            return s[:i]
+    return s
+
+
 def _at_text(text):
     """Strip AT-framing chars from a message body.
 
@@ -57,6 +69,12 @@ def _at_text(text):
         if c != "\r" and c != "\n" and c != "\x1a":
             out.append(c)
     return "".join(out)
+
+
+# Longest a UART write may stall (zero bytes accepted) before we give
+# up. Progress restarts the clock, so a slow-but-moving transfer of a
+# full JPEG never trips it — only a wedged UART does.
+_UART_WRITE_STALL_MS = 30000
 
 
 class _Uart:
@@ -78,6 +96,7 @@ class _Uart:
         start = time.ticks_ms()
         buf = b""
         while time.ticks_diff(time.ticks_ms(), start) < timeout_ms:
+            _watchdog.feed()  # AT polls can run minutes (attach, CMMSSEND)
             n = self._u.any()
             if n:
                 buf += self._u.read(n)
@@ -92,24 +111,40 @@ class _Uart:
                         buf += self._u.read(m)
                     return buf.decode(errors="ignore")
             time.sleep_ms(50)
-        raise OSError("AT timeout: " + at)
+        # Never embed the raw AT string: it can carry the dial string,
+        # APN, or message body. The verb alone is safe to log.
+        raise OSError("AT timeout: " + _at_verb(at))
 
     def write_raw(self, data):
         """Write bytes outside AT framing (e.g. after a CONNECT prompt)."""
         self._u.write(data)
 
     def write_all(self, data):
-        """Write every byte, surviving partial UART writes."""
+        """Write every byte, surviving partial UART writes.
+
+        Bounded: a stall (zero bytes accepted) longer than
+        _UART_WRITE_STALL_MS raises OSError instead of looping forever
+        — the modem send paths catch it and fall down the fallback
+        ladder (MMS -> retry -> SMS-only). Progress restarts the stall
+        clock, so a slow-but-moving JPEG transfer never trips it."""
         off = 0
+        stall_start = time.ticks_ms()
         while off < len(data):
             chunk = data[off : off + 1024]
             n = self._u.write(chunk)
+            _watchdog.feed()
             if n is None:
                 off += len(chunk)  # port took it all
+                stall_start = time.ticks_ms()
             elif n == 0:
                 time.sleep_ms(10)
             else:
                 off += n
+                stall_start = time.ticks_ms()
+            if time.ticks_diff(time.ticks_ms(), stall_start) > _UART_WRITE_STALL_MS:
+                raise OSError(
+                    "UART write stalled 0 bytes for %d ms" % _UART_WRITE_STALL_MS
+                )
 
 
 class GpioButton(_hal.ButtonHAL):
