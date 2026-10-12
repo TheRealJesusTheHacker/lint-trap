@@ -31,11 +31,20 @@ class AlertPod:
     def attach_button(self, button):
         self._button = button
 
+    def _safe_led(self, color):
+        """LED is cosmetic: a flaky LED must never veto the evidence
+        pipeline. Real HAL failures (GPS, camera, modem) still raise
+        and take main's crash path — only the LED is swallowed here."""
+        try:
+            self._hal.led.set(color)
+        except Exception:
+            pass
+
     # -- main loop: call tick() as fast as the platform allows --
     def tick(self):
         now = self._clock.now_ms()
         if self.state == IDLE:
-            self._hal.led.set("green")
+            self._safe_led("green")
             if self._button.update(now):
                 self._begin_alert(now)
         elif self.state == ACQUIRING:
@@ -45,7 +54,7 @@ class AlertPod:
         elif self.state == SENDING:
             self._tick_sending(now)
         elif self.state == DONE:
-            self._hal.led.set("blue")
+            self._safe_led("blue")
             self.state = IDLE
 
     # -- phases --
@@ -54,7 +63,7 @@ class AlertPod:
         self._t0 = now
         self._lat = self._lon = None
         self._photos = []
-        self._hal.led.set("red")
+        self._safe_led("red")
         self._hal.gps.power_on()
 
     def _tick_acquiring(self, now):
@@ -128,7 +137,7 @@ class AlertPod:
             + " photos="
             + str(len(self._photos))
         )
-        self._hal.led.set("green" if (mms_ok or sms_ok) else "red")
+        self._safe_led("green" if (mms_ok or sms_ok) else "red")
         self.state = DONE
 
     # -- helpers --
