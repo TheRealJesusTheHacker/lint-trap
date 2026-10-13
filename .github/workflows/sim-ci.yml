@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dev deps
-        run: pip install -r firmware/requirements-dev.txt pytest ruff black
+        run: pip install -r firmware/requirements-dev.txt pytest==9.1.1 ruff==0.17.0 black==26.10.1
 
       - name: Lint (ruff)
         run: python -m ruff check firmware/pod/ firmware/sim/
