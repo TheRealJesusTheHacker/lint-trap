@@ -99,7 +99,13 @@ class _Uart:
             _watchdog.feed()  # AT polls can run minutes (attach, CMMSSEND)
             n = self._u.any()
             if n:
-                buf += self._u.read(n)
+                # read() can return None if the UART times out between
+                # any() and read() — appending None would raise TypeError
+                # and escape cmd()'s OSError contract (callers retry /
+                # fall back on OSError only).
+                data = self._u.read(n)
+                if data:
+                    buf += data
                 if expect.encode() in buf:
                     # Drain: the matched line (e.g. +CGNSINF coordinates)
                     # may still be arriving after the match.
@@ -108,7 +114,9 @@ class _Uart:
                         m = self._u.any()
                         if not m:
                             break
-                        buf += self._u.read(m)
+                        data = self._u.read(m)
+                        if data:
+                            buf += data
                     return buf.decode(errors="ignore")
             time.sleep_ms(50)
         # Never embed the raw AT string: it can carry the dial string,
