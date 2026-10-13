@@ -1,7 +1,7 @@
 __pycache__/
 *.pyc
 *.pyo
-sim/outbox/
+firmware/sim/outbox/
 .DS_Store
 .env
 .env.*
