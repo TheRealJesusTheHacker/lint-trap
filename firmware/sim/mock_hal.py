@@ -91,13 +91,14 @@ class MockModem:
         """Keep the newest OUTBOX_MAX_FILES so long sim sessions and
         repeated runs can't fill the disk."""
         try:
-            files = [
-                os.path.join(OUTBOX, f)
-                for f in os.listdir(OUTBOX)
-                if os.path.isfile(os.path.join(OUTBOX, f))
-            ]
+            names = os.listdir(OUTBOX)
         except OSError:
             return
+        files = []
+        for name in names:
+            path = os.path.join(OUTBOX, name)
+            if os.path.isfile(path):
+                files.append(path)
         if len(files) <= OUTBOX_MAX_FILES:
             return
         files.sort(key=lambda p: os.path.getmtime(p))

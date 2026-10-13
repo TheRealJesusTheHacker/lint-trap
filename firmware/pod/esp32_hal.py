@@ -64,8 +64,11 @@ def _at_text(text):
     CR/LF/Ctrl-Z would split it into extra AT commands. Legit bodies
     (fixed alert text + float coordinates) never contain these.
     """
+    s = str(text)
+    if "\r" not in s and "\n" not in s and "\x1a" not in s:
+        return s  # common case: nothing to strip, no per-char list build
     out = []
-    for c in str(text):
+    for c in s:
         if c != "\r" and c != "\n" and c != "\x1a":
             out.append(c)
     return "".join(out)
@@ -75,6 +78,14 @@ def _at_text(text):
 # up. Progress restarts the clock, so a slow-but-moving transfer of a
 # full JPEG never trips it — only a wedged UART does.
 _UART_WRITE_STALL_MS = 30000
+
+# Poll/drain quantum for _Uart.cmd. 50 ms is deliberate, NOT a tuning
+# oversight: the drain after a match must out-wait pauses in the
+# modem's response stream, or a line like +CGNSINF can be returned
+# truncated mid-coordinate (measured on the CPython harness: a fragment
+# gap of ~60 ms truncates at a 10 ms quantum, survives at 50 ms). The
+# fixed ~50 ms tail per command (~15 per alert) is the price of never
+# parsing a half-arrived line on a safety device.
 
 
 class _Uart:
@@ -94,6 +105,7 @@ class _Uart:
         # Wrap-safe deadline: ticks_ms() wraps every ~12 days, so compare
         # elapsed time with ticks_diff instead of adding to the clock.
         start = time.ticks_ms()
+        expect_b = expect.encode()  # was re-encoded on every poll
         buf = b""
         while time.ticks_diff(time.ticks_ms(), start) < timeout_ms:
             _watchdog.feed()  # AT polls can run minutes (attach, CMMSSEND)
@@ -106,7 +118,7 @@ class _Uart:
                 data = self._u.read(n)
                 if data:
                     buf += data
-                if expect.encode() in buf:
+                if expect_b in buf:
                     # Drain: the matched line (e.g. +CGNSINF coordinates)
                     # may still be arriving after the match.
                     for _ in range(6):
@@ -134,11 +146,15 @@ class _Uart:
         _UART_WRITE_STALL_MS raises OSError instead of looping forever
         — the modem send paths catch it and fall down the fallback
         ladder (MMS -> retry -> SMS-only). Progress restarts the stall
-        clock, so a slow-but-moving JPEG transfer never trips it."""
+        clock, so a slow-but-moving JPEG transfer never trips it.
+
+        Chunks are 4 KiB memoryview slices — no per-chunk bytes copy:
+        a 30 KiB JPEG takes 8 write calls instead of 30 copied slices."""
+        view = memoryview(data)
         off = 0
         stall_start = time.ticks_ms()
-        while off < len(data):
-            chunk = data[off : off + 1024]
+        while off < len(view):
+            chunk = view[off : off + 4096]
             n = self._u.write(chunk)
             _watchdog.feed()
             if n is None:

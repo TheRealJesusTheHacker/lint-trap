@@ -10,6 +10,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from pod import alert, button, config
 from sim import mock_hal
 
+_STATE_NAMES = {
+    0: "IDLE",
+    1: "ACQUIRING GPS",
+    2: "CAPTURING",
+    3: "SENDING",
+    4: "DONE",
+}
+
 
 def main(argv):
     fail_mms = "--no-mms" in argv
@@ -33,16 +41,7 @@ def main(argv):
     while time.monotonic() < deadline and alerts_done < 1:
         pod.tick()
         if pod.state != last_state:
-            print(
-                "  state ->",
-                {
-                    0: "IDLE",
-                    1: "ACQUIRING GPS",
-                    2: "CAPTURING",
-                    3: "SENDING",
-                    4: "DONE",
-                }[pod.state],
-            )
+            print("  state ->", _STATE_NAMES[pod.state])
             if pod.state == 4:
                 alerts_done += 1
                 mock_btn.held = False  # release so it doesn't re-trigger
