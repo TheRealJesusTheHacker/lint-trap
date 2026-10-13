@@ -61,11 +61,11 @@ def validate():
         problems.append("BUTTON_HOLD_SECONDS must be > 0")
     if BUTTON_DEBOUNCE_MS < 0:
         problems.append("BUTTON_DEBOUNCE_MS must be >= 0")
-    if not (1 <= PHOTO_COUNT <= 10):
-        problems.append("PHOTO_COUNT must be 1-10 (got %r)" % (PHOTO_COUNT,))
-    if not (1 <= PHOTO_JPEG_QUALITY <= 100):
+    if not isinstance(PHOTO_COUNT, int) or not (1 <= PHOTO_COUNT <= 10):
+        problems.append("PHOTO_COUNT must be an int 1-10 (got %r)" % (PHOTO_COUNT,))
+    if not isinstance(PHOTO_JPEG_QUALITY, int) or not (1 <= PHOTO_JPEG_QUALITY <= 100):
         problems.append(
-            "PHOTO_JPEG_QUALITY must be 1-100 (got %r)" % (PHOTO_JPEG_QUALITY,)
+            "PHOTO_JPEG_QUALITY must be an int 1-100 (got %r)" % (PHOTO_JPEG_QUALITY,)
         )
     if GPS_FIX_TIMEOUT_S <= 0:
         problems.append("GPS_FIX_TIMEOUT_S must be > 0")
@@ -73,6 +73,6 @@ def validate():
         problems.append("GPS_MODEM_SETTLE_MS must be >= 0")
     if MODEM_CMD_TIMEOUT_S <= 0:
         problems.append("MODEM_CMD_TIMEOUT_S must be > 0")
-    if MMS_RETRIES < 0:
-        problems.append("MMS_RETRIES must be >= 0")
+    if not isinstance(MMS_RETRIES, int) or MMS_RETRIES < 0:
+        problems.append("MMS_RETRIES must be an int >= 0 (got %r)" % (MMS_RETRIES,))
     return problems
