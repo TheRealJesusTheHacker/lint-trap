@@ -64,7 +64,9 @@ def validate():
     if not (1 <= PHOTO_COUNT <= 10):
         problems.append("PHOTO_COUNT must be 1-10 (got %r)" % (PHOTO_COUNT,))
     if not (1 <= PHOTO_JPEG_QUALITY <= 100):
-        problems.append("PHOTO_JPEG_QUALITY must be 1-100 (got %r)" % (PHOTO_JPEG_QUALITY,))
+        problems.append(
+            "PHOTO_JPEG_QUALITY must be 1-100 (got %r)" % (PHOTO_JPEG_QUALITY,)
+        )
     if GPS_FIX_TIMEOUT_S <= 0:
         problems.append("GPS_FIX_TIMEOUT_S must be > 0")
     if GPS_MODEM_SETTLE_MS < 0:
