@@ -616,3 +616,153 @@ def test_same_second_sends_keep_distinct_files(outbox):
     m.send_sms("+10000000000", "a")
     m.send_sms("+10000000000", "b")
     assert len(outbox_files(outbox, "sms_*.txt")) == 2
+
+
+# -------------------------------------- pass 3: bug hunt round 2
+
+
+def test_camera_none_frame_is_a_failure_not_a_photo(outbox, fast_cfg):
+    """A camera driver can hand back None instead of raising on a failed
+    capture. The None must not be counted as a photo: it used to poison
+    the whole MMS (the modem send touches every frame), losing the good
+    frames and reporting photos=3 for an alert that delivered none."""
+
+    class NoneSecondCamera:
+        def __init__(self):
+            self.n = 0
+
+        def capture_jpeg(self, quality):
+            self.n += 1
+            if self.n == 2:
+                return None
+            return b"\xff\xd8fake\xff\xd9"
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    pod_hal.camera = NoneSecondCamera()
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=True sms=True photos=1"
+    assert len(outbox_files(outbox, "photo_*.jpg")) == 1
+    sms_text = read(outbox_files(outbox, "sms_*.txt")[0])
+    assert "PHOTOS PENDING" not in sms_text
+
+
+def test_camera_empty_frames_send_location_only(outbox, fast_cfg):
+    """Empty-byte frames are failed captures too: zero usable photos ->
+    the location-only ladder rung, with the honest NO PHOTOS wording."""
+
+    class EmptyCamera:
+        def capture_jpeg(self, quality):
+            return b""
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    pod_hal.camera = EmptyCamera()
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=False sms=True photos=0"
+    sms_text = read(outbox_files(outbox, "sms_*.txt")[0])
+    assert "NO PHOTOS" in sms_text
+
+
+class ColdBootGps(hal.GpsHAL):
+    """GPS whose power_on burns 12 s of clock (a cold modem waking from
+    deep sleep: AT retries + PWRKEY pulse + boot) and whose fix becomes
+    available 85 s after power-on completes."""
+
+    def __init__(self, clock):
+        self._clock = clock
+        self._fix_at = None
+
+    def power_on(self):
+        self._clock.advance(12000)
+        self._fix_at = self._clock.now_ms() + 85000
+
+    def power_off(self):
+        pass
+
+    def get_fix(self, timeout_s):
+        if self._fix_at is not None and self._clock.now_ms() >= self._fix_at:
+            return (39.2462, -94.4102)
+        return None
+
+
+def test_fix_window_starts_when_gps_powers_on():
+    """The 90 s fix window is for fix attempts. The ~12 s cold-boot inside
+    power_on — during which a fix is impossible — must not be charged
+    against it, or every deep-sleep wake (modem rail cut = always cold)
+    silently shrinks the window. Fix lands 85 s after power-on: inside
+    the window measured from power-on, outside it measured from the
+    button trigger (85 + 12 = 97 s)."""
+    clk = WrapClock()
+    btn = FakeButton()
+    modem = FakeModem()
+    pod_hal = hal.PodHAL(btn, ColdBootGps(clk), FakeCamera(), modem, FakeLed())
+    pod = alert.AlertPod(pod_hal, config, clk)
+    pod.attach_button(button.PanicButton(btn, 0.3, clk))
+
+    btn.held = True
+    for _ in range(4000):  # 200 s of pod time
+        clk.advance(50)
+        pod.tick()
+        if pod.state == alert.DONE:
+            break
+    else:
+        pytest.fail("pod never finished")
+
+    assert pod.last_result == "mms=True sms=True photos=3"
+    assert len(modem.sms) == 1
+    assert "no GPS fix" not in modem.sms[0][1]
+    assert "39.246200" in modem.sms[0][1]
+
+
+def test_mms_retry_recovers_from_transient_raise(outbox, fast_cfg):
+    """Modem raises on the first MMS attempt, succeeds on the retry ->
+    the alert is an MMS success and the SMS must NOT claim the photos
+    are pending."""
+
+    class FlakyModem(mock_hal.MockModem):
+        def __init__(self):
+            super().__init__(fail_mms=False)
+            self.attempts = 0
+
+        def send_mms(self, number, subject, text, images):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise OSError("simulated transient modem failure")
+            return super().send_mms(number, subject, text, images)
+
+    pod_hal, clock, mock_btn = mock_hal.build_mock_hal(gps_delay_s=0.5)
+    flaky = FlakyModem()
+    pod_hal.modem = flaky
+    pod = alert.AlertPod(pod_hal, config, clock)
+    pod.attach_button(
+        button.PanicButton(pod_hal.button, config.BUTTON_HOLD_SECONDS, clock)
+    )
+
+    assert drive_alert(pod, mock_btn) == "mms=True sms=True photos=3"
+    assert flaky.attempts == 2
+    sms_text = read(outbox_files(outbox, "sms_*.txt")[0])
+    assert "PHOTOS PENDING" not in sms_text
+
+
+def test_config_validate_flags_non_int_tunables(monkeypatch):
+    """PHOTO_COUNT / MMS_RETRIES feed range() and PHOTO_JPEG_QUALITY the
+    JPEG encoder: a float typo (3.0) passes a pure range check but
+    raises TypeError mid-alert. validate() exists to catch config typos
+    at boot — it must flag the type, not just the range."""
+    monkeypatch.setattr(config, "PHOTO_COUNT", 3.0)
+    assert any("PHOTO_COUNT" in p for p in config.validate())
+    monkeypatch.setattr(config, "PHOTO_COUNT", 3)
+
+    monkeypatch.setattr(config, "MMS_RETRIES", 1.5)
+    assert any("MMS_RETRIES" in p for p in config.validate())
+    monkeypatch.setattr(config, "MMS_RETRIES", 1)
+
+    monkeypatch.setattr(config, "PHOTO_JPEG_QUALITY", 70.5)
+    assert any("PHOTO_JPEG_QUALITY" in p for p in config.validate())

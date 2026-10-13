@@ -60,11 +60,17 @@ class AlertPod:
     # -- phases --
     def _begin_alert(self, now):
         self.state = ACQUIRING
-        self._t0 = now
         self._lat = self._lon = None
         self._photos = []
         self._safe_led("red")
         self._hal.gps.power_on()
+        # The fix window starts when the GNSS engine actually starts,
+        # not at the trigger: power_on() can burn ~12 s on a cold modem
+        # (every deep-sleep wake — AT retries + PWRKEY pulse + boot)
+        # during which a fix is impossible. Charging that dead time to
+        # GPS_FIX_TIMEOUT_S would shrink the real fix window on every
+        # single alert.
+        self._t0 = self._clock.now_ms()
 
     def _tick_acquiring(self, now):
         if self._clock.diff_ms(now, self._t0) > self._cfg.GPS_FIX_TIMEOUT_S * 1000:
@@ -87,11 +93,17 @@ class AlertPod:
     def _tick_capturing(self, now):
         for _ in range(self._cfg.PHOTO_COUNT):
             try:
-                self._photos.append(
-                    self._hal.camera.capture_jpeg(self._cfg.PHOTO_JPEG_QUALITY)
-                )
+                frame = self._hal.camera.capture_jpeg(self._cfg.PHOTO_JPEG_QUALITY)
             except Exception:
                 break  # location-only alert still goes out
+            if not frame:
+                # A camera driver can hand back None/empty instead of
+                # raising on a failed capture. Counting it as a photo
+                # would poison the whole MMS — the modem send touches
+                # every frame — and lose the good frames with it.
+                # Treat it as the camera failure it is.
+                break
+            self._photos.append(frame)
         self.state = SENDING
 
     def _tick_sending(self, now):
