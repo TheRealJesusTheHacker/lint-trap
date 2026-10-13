@@ -8,10 +8,9 @@
 
 import time
 
-from pod import alert, button
+from pod import alert, button, watchdog
 from pod import config as C
 from pod import lilygo_board as B
-from pod import watchdog
 from pod.esp32_hal import build_lilygo_pod, sleep_until_button
 from pod.pmu import PowerUnit
 
