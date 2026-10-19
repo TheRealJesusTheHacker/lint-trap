@@ -766,3 +766,140 @@ def test_config_validate_flags_non_int_tunables(monkeypatch):
 
     monkeypatch.setattr(config, "PHOTO_JPEG_QUALITY", 70.5)
     assert any("PHOTO_JPEG_QUALITY" in p for p in config.validate())
+
+
+# -------------------------------------- pass 4: sweep 2026-10-19
+
+
+def test_config_validate_survives_non_numeric_tunables(monkeypatch):
+    """validate() must REPORT a typo'd tunable, never raise on it: a
+    string/None in a comparison field used to make validate() itself
+    raise TypeError, and main() calls it unguarded at boot — the check
+    designed to never block the pod became the thing that crashed it.
+    (Same family as the non-int PHOTO_COUNT fix in pass 3, which only
+    covered the three isinstance-checked fields.)"""
+    for name, bad in (
+        ("BUTTON_HOLD_SECONDS", "2"),
+        ("BUTTON_HOLD_SECONDS", None),
+        ("BUTTON_DEBOUNCE_MS", "50"),
+        ("GPS_FIX_TIMEOUT_S", None),
+        ("GPS_MODEM_SETTLE_MS", "2000"),
+        ("MODEM_CMD_TIMEOUT_S", "10"),
+    ):
+        monkeypatch.setattr(config, name, bad)
+        problems = config.validate()  # must not raise
+        assert any(name in p for p in problems), (name, bad, problems)
+        monkeypatch.undo()
+
+
+def test_config_validate_flags_bool_and_nan_tunables(monkeypatch):
+    """True is an int in Python (== 1) and NaN passes every <= check:
+    neither is a sane tunable, and validate() must flag both."""
+    monkeypatch.setattr(config, "PHOTO_COUNT", True)
+    assert any("PHOTO_COUNT" in p for p in config.validate())
+    monkeypatch.undo()
+    monkeypatch.setattr(config, "BUTTON_HOLD_SECONDS", float("nan"))
+    assert any("BUTTON_HOLD_SECONDS" in p for p in config.validate())
+
+
+def test_hold_progress_with_zero_hold_does_not_divide_by_zero():
+    """PanicButton(hold_s=0).hold_progress() divided by _hold_ms == 0.
+    The firmware path never calls hold_progress (validate() flags the
+    config), but the sim GUI does — a display helper must not crash."""
+    _hal, clock, mock_btn = mock_hal.build_mock_hal()
+    pb = button.PanicButton(mock_btn, 0, clock)
+    assert pb.hold_progress(clock.now_ms()) == 0.0  # not pressed
+    mock_btn.held = True
+    pb.update(clock.now_ms())
+    assert pb.hold_progress(clock.now_ms()) == 1.0  # zero hold is met
+
+
+class _FakeModemUart:
+    """UART stub for LilyGoModem.get_fix: cmd() replays one CGNSINF line."""
+
+    def __init__(self, line):
+        self._line = line
+
+    def cmd(self, at, expect="OK", timeout_ms=None):
+        return self._line
+
+
+def _modem_with_cgnsinf(line):
+    modem = object.__new__(esp32_hal.LilyGoModem)
+    modem._uart = _FakeModemUart(line)
+    return modem
+
+
+def _cgnsinf(lat, lon):
+    return "+CGNSINF: 1,1,20240101000000.000,%s,%s,0.00,0.0,0" % (lat, lon)
+
+
+def test_get_fix_rejects_out_of_range_coordinates():
+    """float() parses anything numeric — including a marginal-fix echo
+    of lat=95 or lon=-181, which would hand the parent a maps link to
+    nowhere. Out-of-range parses as no-fix, so polling continues."""
+    modem = _modem_with_cgnsinf(_cgnsinf("95.000000", "-94.410200"))
+    assert modem.get_fix(timeout_s=1) is None
+    modem = _modem_with_cgnsinf(_cgnsinf("39.246200", "-181.000000"))
+    assert modem.get_fix(timeout_s=1) is None
+
+
+def test_get_fix_rejects_nan_coordinates():
+    modem = _modem_with_cgnsinf(_cgnsinf("nan", "nan"))
+    assert modem.get_fix(timeout_s=1) is None
+
+
+def test_get_fix_accepts_valid_coordinates():
+    modem = _modem_with_cgnsinf(_cgnsinf("39.246200", "-94.410200"))
+    assert modem.get_fix(timeout_s=1) == (39.2462, -94.4102)
+
+
+class _FakeTicks:
+    """MicroPython-style ticks for esp32_hal.time on a CPython host."""
+
+    def __init__(self):
+        self.t = 0
+
+    def ticks_ms(self):
+        return self.t
+
+    def ticks_diff(self, newer, older):
+        return newer - older
+
+    def sleep_ms(self, ms):
+        self.t += ms
+
+
+class _PartialUart:
+    """UART whose write() accepts at most 3 bytes per call (a real
+    MicroPython UART write may short-write) and which answers OK."""
+
+    def __init__(self):
+        self.written = bytearray()
+        self._resp = b""
+
+    def write(self, data):
+        n = min(3, len(data))
+        self.written += bytes(data[:n])
+        if bytes(self.written).endswith(b"\r\n"):
+            self._resp = b"\r\nOK\r\n"
+        return n
+
+    def any(self):
+        return len(self._resp)
+
+    def read(self, n):
+        out, self._resp = self._resp[:n], self._resp[n:]
+        return out
+
+
+def test_uart_cmd_survives_partial_writes(monkeypatch):
+    """_Uart.cmd used a bare write() for the AT line: a short write
+    truncated the command mid-line and the modem waited in silence
+    until the timeout. cmd() now goes through write_all."""
+    monkeypatch.setattr(esp32_hal, "time", _FakeTicks())
+    uart = object.__new__(esp32_hal._Uart)
+    uart._u = _PartialUart()
+    out = uart.cmd("AT+CMGF=1", timeout_ms=5000)
+    assert bytes(uart._u.written) == b"AT+CMGF=1\r\n"
+    assert "OK" in out
