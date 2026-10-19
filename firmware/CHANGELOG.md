@@ -10,6 +10,28 @@ and the firmware is sim-verified, **not** hardware-validated.
 
 ### Fixed
 
+- All-repo sweep 2026-10-19 (7 new tests in `sim/test_sim.py`, suite 33 -> 40):
+  - `pod/config.py`: `validate()` itself raised `TypeError` on a
+    string/None typo in the comparison-only tunables
+    (`BUTTON_HOLD_SECONDS`, `BUTTON_DEBOUNCE_MS`, `GPS_FIX_TIMEOUT_S`,
+    `GPS_MODEM_SETTLE_MS`, `MODEM_CMD_TIMEOUT_S`) — and `main()` calls
+    it unguarded at boot, so the never-block check became a boot crash.
+    All tunables are now type-guarded before comparison (bool and NaN
+    flag too); `validate()` reports, never raises.
+  - `pod/esp32_hal.py`: `LilyGoModem.get_fix()` accepted any
+    `float()`-parseable coordinates — out-of-range or NaN values from a
+    marginal fix would have handed the parent a maps link to nowhere.
+    Coordinates are now range-checked (-90..90, -180..180; NaN fails
+    the check) and a bad parse is just "no fix yet".
+  - `pod/esp32_hal.py`: `_Uart.cmd()` sent the AT line with a bare
+    `write()` — a partial UART write truncated the command mid-line.
+    It (and `write_raw()`) now go through the stall-bounded
+    `write_all()`, like the JPEG payloads already did.
+  - `pod/button.py`: `hold_progress()` divided by `_hold_ms` and
+    raised `ZeroDivisionError` for `hold_s=0` (config error, flagged
+    by `validate()`; reachable from the sim GUI). A zero hold now
+    reports as fully met instead of crashing the display helper.
+
 - Security audit pass 2 (concurrency / edge cases):
   - `pod/main.py`: an uncaught exception mid-alert (e.g. GPS power-on
     against a dead modem) used to escape `run_alert()` and kill the
