@@ -293,9 +293,20 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
                 f = line.split(":")[1].strip().split(",")
                 if len(f) > 4 and f[1] == "1":
                     try:
-                        return (float(f[3]), float(f[4]))
+                        lat, lon = float(f[3]), float(f[4])
                     except ValueError:
                         return None
+                    # float() alone also accepts "nan"/"inf" and any
+                    # out-of-range junk the modem echoes on a marginal
+                    # fix — the parent would get a maps link to nowhere
+                    # (or "nan, nan" in the SMS). Range-checking rejects
+                    # NaN too: every comparison against NaN is False, so
+                    # "not (lo <= x <= hi)" catches it. A rejected parse
+                    # is just "no fix yet" — the caller keeps polling
+                    # until the real timeout, then sends flagged.
+                    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+                        return None
+                    return (lat, lon)
         return None
 
 
