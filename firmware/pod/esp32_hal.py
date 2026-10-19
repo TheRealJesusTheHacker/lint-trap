@@ -101,7 +101,11 @@ class _Uart:
     def cmd(self, at, expect="OK", timeout_ms=None):
         if timeout_ms is None:
             timeout_ms = _cfg.MODEM_CMD_TIMEOUT_S * 1000
-        self._u.write((at + "\r\n").encode())
+        # write_all, not a bare write(): a partial UART write would
+        # truncate the AT line mid-command and the modem would sit
+        # waiting for the rest until this cmd's timeout — the same
+        # partial-write hazard write_all exists for on JPEG payloads.
+        self.write_all((at + "\r\n").encode())
         # Wrap-safe deadline: ticks_ms() wraps every ~12 days, so compare
         # elapsed time with ticks_diff instead of adding to the clock.
         start = time.ticks_ms()
@@ -136,8 +140,10 @@ class _Uart:
         raise OSError("AT timeout: " + _at_verb(at))
 
     def write_raw(self, data):
-        """Write bytes outside AT framing (e.g. after a CONNECT prompt)."""
-        self._u.write(data)
+        """Write bytes outside AT framing (e.g. after a CONNECT prompt).
+        Routed through write_all for the same reason as cmd(): a bare
+        write() can silently short-write, truncating the payload."""
+        self.write_all(data)
 
     def write_all(self, data):
         """Write every byte, surviving partial UART writes.
