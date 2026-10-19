@@ -32,6 +32,16 @@ def _dial_ok(number):
     return bool(body) and all("0" <= c <= "9" for c in body)
 
 
+def _is_number(value):
+    """True for a real numeric tunable (bool is not a number here:
+    BUTTON_HOLD_SECONDS=True is a typo, not 1 second)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def validate():
     """Fail-fast config check. Returns a list of problem strings
     (empty = good to flash).
@@ -51,28 +61,34 @@ def validate():
     ):
         if str(value).startswith("REPLACE_WITH"):
             problems.append("%s still has the REPLACE_WITH_ placeholder" % name)
-    if not isinstance(CARRIER_MMS_PROXY_PORT, int) or not (
+    if not _is_int(CARRIER_MMS_PROXY_PORT) or not (
         1 <= CARRIER_MMS_PROXY_PORT <= 65535
     ):
         problems.append(
             "CARRIER_MMS_PROXY_PORT %r is not a valid port" % (CARRIER_MMS_PROXY_PORT,)
         )
-    if BUTTON_HOLD_SECONDS <= 0:
+    # The remaining tunables feed comparisons, range() and int() casts
+    # all over the alert path. Each check type-guards FIRST (and uses
+    # "not (x > 0)" so NaN flags too): a string/None typo here used to
+    # make validate() itself raise TypeError — and main() calls it
+    # unguarded at boot, so the check designed to never block the pod
+    # became the thing that crashed it.
+    if not _is_number(BUTTON_HOLD_SECONDS) or not (BUTTON_HOLD_SECONDS > 0):
         problems.append("BUTTON_HOLD_SECONDS must be > 0")
-    if BUTTON_DEBOUNCE_MS < 0:
+    if not _is_number(BUTTON_DEBOUNCE_MS) or not (BUTTON_DEBOUNCE_MS >= 0):
         problems.append("BUTTON_DEBOUNCE_MS must be >= 0")
-    if not isinstance(PHOTO_COUNT, int) or not (1 <= PHOTO_COUNT <= 10):
+    if not _is_int(PHOTO_COUNT) or not (1 <= PHOTO_COUNT <= 10):
         problems.append("PHOTO_COUNT must be an int 1-10 (got %r)" % (PHOTO_COUNT,))
-    if not isinstance(PHOTO_JPEG_QUALITY, int) or not (1 <= PHOTO_JPEG_QUALITY <= 100):
+    if not _is_int(PHOTO_JPEG_QUALITY) or not (1 <= PHOTO_JPEG_QUALITY <= 100):
         problems.append(
             "PHOTO_JPEG_QUALITY must be an int 1-100 (got %r)" % (PHOTO_JPEG_QUALITY,)
         )
-    if GPS_FIX_TIMEOUT_S <= 0:
+    if not _is_number(GPS_FIX_TIMEOUT_S) or not (GPS_FIX_TIMEOUT_S > 0):
         problems.append("GPS_FIX_TIMEOUT_S must be > 0")
-    if GPS_MODEM_SETTLE_MS < 0:
+    if not _is_number(GPS_MODEM_SETTLE_MS) or not (GPS_MODEM_SETTLE_MS >= 0):
         problems.append("GPS_MODEM_SETTLE_MS must be >= 0")
-    if MODEM_CMD_TIMEOUT_S <= 0:
+    if not _is_number(MODEM_CMD_TIMEOUT_S) or not (MODEM_CMD_TIMEOUT_S > 0):
         problems.append("MODEM_CMD_TIMEOUT_S must be > 0")
-    if not isinstance(MMS_RETRIES, int) or MMS_RETRIES < 0:
+    if not _is_int(MMS_RETRIES) or MMS_RETRIES < 0:
         problems.append("MMS_RETRIES must be an int >= 0 (got %r)" % (MMS_RETRIES,))
     return problems
