@@ -37,4 +37,9 @@ class PanicButton:
         """0.0–1.0 progress toward trigger (drives the kid-facing LED)."""
         if not self._stable or self._press_start is None:
             return 0.0
+        if self._hold_ms <= 0:
+            # hold_s=0 is a config error (validate() flags it), but this
+            # is a display helper — dividing by _hold_ms raised
+            # ZeroDivisionError. A zero hold is already met by definition.
+            return 1.0
         return min(1.0, self._clock.diff_ms(now_ms, self._press_start) / self._hold_ms)
