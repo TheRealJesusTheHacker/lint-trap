@@ -1,7 +1,7 @@
 # Hoodie Pod Firmware
 
 [![Sim CI](https://github.com/TheRealJesusTheHacker/lint-trap/actions/workflows/sim-ci.yml/badge.svg)](https://github.com/TheRealJesusTheHacker/lint-trap/actions/workflows/sim-ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](../LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)](../LICENSE)
 
 MicroPython firmware for a child-safety wearable — the **hoodie pod**. A kid
 in trouble holds a hidden sleeve button for 2 seconds; the pod wakes from
@@ -273,7 +273,7 @@ bc1qvydns2fmyjzj55wzxq7ta28nxdhcmu9l9m6yg0
 
 ## License
 
-This project is licensed under the MIT License — see [`../LICENSE`](../LICENSE).
+This project is proprietary software — all rights reserved. See [`../LICENSE`](../LICENSE) for the full terms.
 
 Copyright (c) 2026 JesusTheHacker.
 
