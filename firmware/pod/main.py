@@ -15,10 +15,39 @@ from pod.esp32_hal import build_lilygo_pod, sleep_until_button
 from pod.pmu import PowerUnit
 
 
+def _crash_result(pod_hal, e):
+    """Shared crash path for run_alert_loop: log, best-effort bare SMS
+    (only when a HAL exists to send it with), red LED, 'pod-error'."""
+    print("alert crashed mid-run: %r" % (e,))
+    if pod_hal is not None:
+        try:
+            pod_hal.modem.send_sms(
+                C.PARENT_NUMBER,
+                "HOODIE ALERT from your child. Pod error mid-alert "
+                "- call your child now.",
+            )
+        except Exception:
+            pass
+        try:
+            pod_hal.led.set("red")
+        except Exception:
+            pass
+    return "pod-error"
+
+
 def run_alert(pmu):
     """Woke by the button. Returns the alert result string, or '' if the
     press was too short to trigger (false wake)."""
-    pod_hal, clock, _btn_pin = build_lilygo_pod(B, pmu)
+    try:
+        pod_hal, clock, _btn_pin = build_lilygo_pod(B, pmu)
+    except Exception as e:
+        # Peripheral construction (UART/Pin setup) can fail on a sick
+        # board. run_alert_loop's NEVER-raises contract starts here:
+        # without a HAL there is nothing to send the bare SMS with, but
+        # returning 'pod-error' still lets main() log the failure and
+        # park the pod in deep sleep instead of dying on a traceback
+        # at full draw.
+        return _crash_result(None, e)
     return run_alert_loop(pod_hal, clock)
 
 
@@ -33,12 +62,20 @@ def run_alert_loop(pod_hal, clock):
     crash we attempt a best-effort bare SMS first, then report the
     failure so the boot log shows it.
     """
-    pod = alert.AlertPod(pod_hal, C, clock)
-    pod.attach_button(
-        button.PanicButton(
-            pod_hal.button, C.BUTTON_HOLD_SECONDS, clock, C.BUTTON_DEBOUNCE_MS
+    try:
+        pod = alert.AlertPod(pod_hal, C, clock)
+        pod.attach_button(
+            button.PanicButton(
+                pod_hal.button, C.BUTTON_HOLD_SECONDS, clock, C.BUTTON_DEBOUNCE_MS
+            )
         )
-    )
+    except Exception as e:
+        # Setup is part of the NEVER-raises contract too: a bad tunable
+        # reaching PanicButton (int(hold_s * 1000)) or a HAL whose
+        # constructor touches hardware must take the same crash path
+        # as a mid-run tick failure — bare SMS, then 'pod-error' — not
+        # escape main() and leave the pod awake on a traceback.
+        return _crash_result(pod_hal, e)
     t0 = clock.now_ms()
     last_seen = ""
     while True:
@@ -46,20 +83,7 @@ def run_alert_loop(pod_hal, clock):
         try:
             pod.tick()
         except Exception as e:
-            print("alert crashed mid-run: %r" % (e,))
-            try:
-                pod_hal.modem.send_sms(
-                    C.PARENT_NUMBER,
-                    "HOODIE ALERT from your child. Pod error mid-alert "
-                    "- call your child now.",
-                )
-            except Exception:
-                pass
-            try:
-                pod_hal.led.set("red")
-            except Exception:
-                pass
-            return "pod-error"
+            return _crash_result(pod_hal, e)
         if pod.last_result and pod.last_result != last_seen:
             return pod.last_result
         # false wake: released, nothing triggered within 10s
