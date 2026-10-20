@@ -903,3 +903,98 @@ def test_uart_cmd_survives_partial_writes(monkeypatch):
     out = uart.cmd("AT+CMGF=1", timeout_ms=5000)
     assert bytes(uart._u.written) == b"AT+CMGF=1\r\n"
     assert "OK" in out
+
+
+# ------------------------------------------------- sweep #2 (2026-10-19)
+
+
+def test_run_alert_loop_setup_crash_still_tries_bare_sms(outbox, monkeypatch):
+    """run_alert_loop documents NEVER raises, but its setup phase sat
+    outside the crash guard: a PanicButton construction failure (e.g. a
+    bad hold tunable reaching int(hold_s * 1000)) escaped main() with
+    no bare SMS and no clean 'pod-error'. It must take the same crash
+    path as a mid-run tick failure."""
+    from pod import main as pod_main
+
+    pod_hal, clock, _mock_btn = mock_hal.build_mock_hal()
+
+    def _boom(*args, **kwargs):
+        raise TypeError("simulated bad hold tunable")
+
+    monkeypatch.setattr(pod_main.button, "PanicButton", _boom)
+
+    class SimTime:
+        @staticmethod
+        def sleep_ms(ms):
+            time.sleep(ms / 1000.0)
+
+    monkeypatch.setattr(pod_main, "time", SimTime)
+
+    result = pod_main.run_alert_loop(pod_hal, clock)
+    assert result == "pod-error"
+    sms = outbox_files(outbox, "sms_*.txt")
+    assert len(sms) == 1
+    assert "Pod error mid-alert" in read(sms[0])
+
+
+def test_run_alert_build_failure_returns_pod_error(monkeypatch):
+    """If build_lilygo_pod itself raises (UART/Pin construction on a
+    sick board), run_alert must return 'pod-error' so main() can log
+    and park the pod — not die on a traceback at full draw."""
+    from pod import main as pod_main
+
+    def _boom(board, pmu):
+        raise OSError("simulated UART construction failure")
+
+    monkeypatch.setattr(pod_main, "build_lilygo_pod", _boom)
+    assert pod_main.run_alert(None) == "pod-error"
+
+
+class _RecordingMmsUart:
+    """Fake UART-side AT channel for LilyGoModem.send_mms: records every
+    command, fails CMMSSEND, and is already attached/alive."""
+
+    def __init__(self):
+        self.cmds = []
+        self.writes = []
+
+    def cmd(self, at, expect="OK", timeout_ms=None):
+        self.cmds.append(at)
+        if at.startswith("AT+CMMSSEND"):
+            raise OSError("AT timeout: AT+CMMSSEND")
+        return "OK"
+
+    def write_all(self, data):
+        self.writes.append(bytes(data))
+
+
+def test_send_mms_failure_attempts_term_and_reraises(monkeypatch):
+    """A mid-MMS failure used to leave the modem holding an open MMS
+    session, so the alert's retry started CMMSINIT against stale state.
+    send_mms must best-effort CMMSTERM on the way out and re-raise the
+    original error for the fallback ladder."""
+    modem = object.__new__(esp32_hal.LilyGoModem)
+    modem._uart = _RecordingMmsUart()
+    modem._attached = True  # _attach() no-ops; no _ensure_alive needed
+    modem._gnss_on = False
+    with pytest.raises(OSError):
+        modem.send_mms("+18165558418", "HOODIE ALERT", "body", [b"\xff\xd8jpeg"])
+    assert modem._uart.cmds[0] == "AT+CMMSINIT"
+    assert modem._uart.cmds[-1] == "AT+CMMSTERM"
+
+
+def test_send_mms_success_still_terms_once(monkeypatch):
+    """Happy path unchanged: exactly one CMMSTERM, at the end."""
+
+    class _OkUart(_RecordingMmsUart):
+        def cmd(self, at, expect="OK", timeout_ms=None):
+            self.cmds.append(at)
+            return "OK"
+
+    modem = object.__new__(esp32_hal.LilyGoModem)
+    modem._uart = _OkUart()
+    modem._attached = True
+    modem._gnss_on = False
+    assert modem.send_mms("+18165558418", "HOODIE ALERT", "body", [b"img"]) is True
+    assert modem._uart.cmds.count("AT+CMMSTERM") == 1
+    assert modem._uart.cmds[-1] == "AT+CMMSTERM"
