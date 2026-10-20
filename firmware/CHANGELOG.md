@@ -10,6 +10,22 @@ and the firmware is sim-verified, **not** hardware-validated.
 
 ### Fixed
 
+- Bug hunt #2 2026-10-19 (4 new tests in `sim/test_sim.py`, suite 40 -> 44):
+  - `pod/main.py`: `run_alert_loop()` documents NEVER raises, but its
+    setup phase sat outside the crash guard — a `PanicButton`
+    construction failure (e.g. a bad hold tunable reaching
+    `int(hold_s * 1000)`) escaped `main()` with no bare SMS, and a
+    `build_lilygo_pod()` failure in `run_alert()` (UART/Pin
+    construction on a sick board) did the same. Both now take the
+    shared crash path: best-effort bare SMS when a HAL exists, then
+    `pod-error`, so `main()` logs the failure and parks the pod.
+  - `pod/esp32_hal.py`: a failure anywhere after `AT+CMMSINIT` in
+    `send_mms()` left the modem holding an open MMS session, so the
+    alert's own retry started `CMMSINIT` against stale state.
+    `send_mms()` now best-effort sends `AT+CMMSTERM` (the same command
+    the success path uses) on the way out and re-raises the original
+    error for the fallback ladder.
+
 - All-repo sweep 2026-10-19 (7 new tests in `sim/test_sim.py`, suite 33 -> 40):
   - `pod/config.py`: `validate()` itself raised `TypeError` on a
     string/None typo in the comparison-only tunables
