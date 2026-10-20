@@ -22,7 +22,7 @@ This tree holds **two halves that run the same logic**:
   the real modem would see.
 
 > **Verification status — read this first.** The firmware is
-> **sim-verified, NOT hardware-validated.** The 28-test pytest suite and
+> **sim-verified, NOT hardware-validated.** The 44-test pytest suite and
 > the three CLI scenarios below prove the logic against mocks. The
 > SIM7080G AT sequences in `pod/esp32_hal.py` are marked **DRAFT** until
 > proven against the SIMCom AT manual on the bench. The deep-sleep wake
@@ -163,7 +163,7 @@ sim/
   mock_hal.py      mock button/GPS/camera/modem/LED/clock; modem writes sim/outbox/
   run.py           CLI: golden path + --no-mms / --no-gps fallback scenarios
   gui.py           tkinter demo: hold the big red button with your mouse
-  test_sim.py      28-test pytest suite (CI) — scenarios, ladder, button, wraps
+  test_sim.py      44-test pytest suite (CI) — scenarios, ladder, button, wraps
 BRINGUP.md         bench procedure: polarity, SIM, antennas, steps, fault table
 HARDWARE.md        product architecture: one motherboard + wired peripherals
 CHANGELOG.md       what changed, by date (no releases cut yet)
@@ -178,7 +178,7 @@ python3 sim/run.py            # golden path: hold → GPS → photos → MMS+SMS
 python3 sim/run.py --no-mms   # MMS fails → SMS fallback with "PHOTOS PENDING"
 python3 sim/run.py --no-gps   # no GPS fix → alert still goes out, flagged
 python3 sim/gui.py            # interactive demo with a hold-to-trigger button
-python3 -m pytest sim/ -v     # the full 28-test suite
+python3 -m pytest sim/ -v     # the full 44-test suite
 ```
 
 Sent "messages" land in `sim/outbox/` — the MMS text file, 3 JPEGs, the SMS
@@ -218,7 +218,7 @@ fires the alert, and sleeps again.
 
 ```bash
 cd firmware
-python3 -m pytest sim/ -v   # 28 tests: golden path, fallback ladder,
+python3 -m pytest sim/ -v   # 44 tests: golden path, fallback ladder,
                             # edge cases (modem death, mid-capture camera
                             # failure, button mashing, alert-crash SMS),
                             # button behavior, HAL contract, config
