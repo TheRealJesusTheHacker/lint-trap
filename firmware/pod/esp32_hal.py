@@ -258,18 +258,35 @@ class LilyGoModem(_hal.ModemHAL, _hal.GpsHAL):
         self._attach()
         u, c = self._uart, _cfg
         u.cmd("AT+CMMSINIT")
-        u.cmd('AT+CMMSCFG="mmsc","%s"' % _at_param(c.CARRIER_MMSC_URL, "MMSC URL"))
-        u.cmd(
-            'AT+CMMSCFG="proxy","%s",%d'
-            % (_at_param(c.CARRIER_MMS_PROXY, "MMS proxy"), c.CARRIER_MMS_PROXY_PORT)
-        )
-        tb = _at_text(text).encode()
-        u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(tb), expect="CONNECT")
-        u.write_all(tb)
-        for img in images:
-            u.cmd('AT+CMMSDOWN="PIC",%d,20000' % len(img), expect="CONNECT")
-            u.write_all(img)
-        u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:", timeout_ms=60000)
+        try:
+            u.cmd('AT+CMMSCFG="mmsc","%s"' % _at_param(c.CARRIER_MMSC_URL, "MMSC URL"))
+            u.cmd(
+                'AT+CMMSCFG="proxy","%s",%d'
+                % (
+                    _at_param(c.CARRIER_MMS_PROXY, "MMS proxy"),
+                    c.CARRIER_MMS_PROXY_PORT,
+                )
+            )
+            tb = _at_text(text).encode()
+            u.cmd('AT+CMMSDOWN="TEXT",%d,10000' % len(tb), expect="CONNECT")
+            u.write_all(tb)
+            for img in images:
+                u.cmd('AT+CMMSDOWN="PIC",%d,20000' % len(img), expect="CONNECT")
+                u.write_all(img)
+            u.cmd('AT+CMMSSEND="%s"' % number, expect="+CMMSSEND:", timeout_ms=60000)
+        except Exception:
+            # A failure anywhere after CMMSINIT leaves the modem holding
+            # an open MMS session. Without a TERM the alert's own retry
+            # (alert.py re-calls send_mms) starts its CMMSINIT against
+            # that stale session and can fail for the wrong reason.
+            # Best-effort TERM with the same command the success path
+            # uses, then let the original failure propagate so the
+            # fallback ladder sees the real error.
+            try:
+                u.cmd("AT+CMMSTERM", timeout_ms=5000)
+            except Exception:
+                pass
+            raise
         u.cmd("AT+CMMSTERM")
         return True
 
