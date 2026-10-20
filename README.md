@@ -24,6 +24,11 @@ screen had a film on it you couldn't see until you ran water over it.
 
 ## Log
 
+### 2026-10-18
+Monthly scrub and the fall vent check. Flapper was barely moving — pulled a
+wad of lint out of the outside hood and it swings fine now. The scrub brush
+is wearing down, need a new one before next month.
+
 ### 2026-09-14
 Monthly scrub. Water beaded on the screen before washing, ran straight through
 after. Drying time back to normal.
