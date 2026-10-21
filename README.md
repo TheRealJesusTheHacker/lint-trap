@@ -24,6 +24,11 @@ screen had a film on it you couldn't see until you ran water over it.
 
 ## Log
 
+### 2026-10-21
+Quick trap rinse between loads — towels were coming out a little damp again.
+Screen looked fine but the water test said otherwise. Bought a new scrub
+brush while I was thinking about it, old one's by the sink.
+
 ### 2026-10-18
 Monthly scrub and the fall vent check. Flapper was barely moving — pulled a
 wad of lint out of the outside hood and it swings fine now. The scrub brush

@@ -10,6 +10,18 @@ and the firmware is sim-verified, **not** hardware-validated.
 
 ### Fixed
 
+- Bug hunt sweep #3 2026-10-21 (2 new tests in `sim/test_sweep3.py`,
+  suite 44 -> 46):
+  - `pod/main.py`: `go_to_sleep()` cut the PMU rails (camera, GPS
+    antenna, modem) unguarded, so any exception from a rail cut —
+    e.g. `camera_power_off()` calling a PMU method the bench has not
+    proven exists in XPowersLib — escaped and left the pod awake at
+    full draw instead of parked in deep sleep. Rail cuts are now
+    best-effort (each failure logged), matching main()'s standing
+    rule that PMU failures must never veto sleep. Whether
+    `disableALDO` exists in XPowersLib remains a bench question —
+    the pod now survives either answer.
+
 - Bug hunt #2 2026-10-19 (4 new tests in `sim/test_sim.py`, suite 40 -> 44):
   - `pod/main.py`: `run_alert_loop()` documents NEVER raises, but its
     setup phase sat outside the crash guard — a `PanicButton`
