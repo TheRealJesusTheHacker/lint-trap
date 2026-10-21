@@ -110,9 +110,20 @@ def go_to_sleep(pmu, cut_rails=True):
         watchdog.feed()
         time.sleep_ms(50)
     if cut_rails:
-        pmu.camera_power_off()
-        pmu.gps_antenna(False)
-        pmu.modem_rail(False)
+        # Best-effort, like PMU init in main(): a rail that refuses to
+        # cut (a PMU method the bench hasn't proven exists, a wedged
+        # I2C bus) must never veto sleep — a pod that can't park drains
+        # its battery at full draw, which is the worst failure this
+        # function can produce. Log each failure and sleep anyway.
+        for cut in (
+            pmu.camera_power_off,
+            lambda: pmu.gps_antenna(False),
+            lambda: pmu.modem_rail(False),
+        ):
+            try:
+                cut()
+            except Exception as e:
+                print("rail cut failed before sleep: %r — sleeping anyway" % (e,))
         time.sleep_ms(100)
     sleep_until_button(B)  # never returns; wake = reboot into main()
 
