@@ -21,13 +21,29 @@ screen had a film on it you couldn't see until you ran water over it.
   screen needs the soap treatment, not just a finger swipe.
 - The "clean the trap" habit sticks better if the trash can is right next to
   the dryer. Moved ours in March, haven't missed a load since.
+- Hoodies and blankets fill the trap faster than a week of light loads —
+  one blanket load left it packed solid.
 
 ## Log
+
+### 2026-10-23
+Blankets and hoodies today since it's getting cold. Trap was stuffed after
+just the blanket load — new brush earned its keep, screen rinsed clean in
+about a minute. Heavy-load season is here I guess.
+
+### 2026-10-22
+Ran the water test on the screen out of habit, still runs straight through.
+While I was back there I checked the hose behind the dryer — clamp's tight
+and there's no lint piling up around it, so we're good.
 
 ### 2026-10-21
 Quick trap rinse between loads — towels were coming out a little damp again.
 Screen looked fine but the water test said otherwise. Bought a new scrub
 brush while I was thinking about it, old one's by the sink.
+
+### 2026-10-19
+Two loads of jeans, trap emptied both times. Nothing exciting to write
+down.
 
 ### 2026-10-18
 Monthly scrub and the fall vent check. Flapper was barely moving — pulled a
