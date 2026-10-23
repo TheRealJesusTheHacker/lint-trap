@@ -31,6 +31,11 @@ Blankets and hoodies today since it's getting cold. Trap was stuffed after
 just the blanket load — new brush earned its keep, screen rinsed clean in
 about a minute. Heavy-load season is here I guess.
 
+### 2026-10-23
+Second check before bed — trap was already filling up again after the
+evening loads. Quick scrape and rinse, water runs through fine. Blanket
+season is going to keep me busy.
+
 ### 2026-10-22
 Ran the water test on the screen out of habit, still runs straight through.
 While I was back there I checked the hose behind the dryer — clamp's tight

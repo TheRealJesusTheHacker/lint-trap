@@ -10,6 +10,13 @@ and the firmware is sim-verified, **not** hardware-validated.
 
 ### Fixed
 
+- Fleet sweep #4 2026-10-23: dev-only `pillow` pin bumped
+  12.3.0 -> 13.0.0 in `requirements-dev.txt` and
+  `firmware/requirements-dev.txt` — pip-audit flagged 20 known
+  vulnerabilities in 12.3.0, all fixed in 13.0.0; re-audit is clean
+  and the 46-test sim suite passes on the new pin. (Dev/simulator
+  dependency only — the pod firmware itself is dependency-free
+  MicroPython and is untouched.)
 - Bug hunt sweep #3 2026-10-21 (2 new tests in `sim/test_sweep3.py`,
   suite 44 -> 46):
   - `pod/main.py`: `go_to_sleep()` cut the PMU rails (camera, GPS
