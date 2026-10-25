@@ -1,0 +1,9 @@
+# lint-trap CI tool set -- the exact tool versions .github/workflows/sim-ci.yml
+# previously installed ad-hoc on its pip line. The simulator's dev dependency
+# (pillow, for the PC simulator) comes in via requirements-dev.txt.
+# Install the hashed lock instead: firmware/requirements-ci.lock.txt
+# (pip install --require-hashes -r firmware/requirements-ci.lock.txt).
+-r requirements-dev.txt
+pytest==9.1.1
+ruff==0.17.0
+black==26.10.1

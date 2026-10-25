@@ -174,7 +174,7 @@ CHANGELOG.md       what changed, by date (no releases cut yet)
 
 ```bash
 cd firmware
-pip install -r requirements-dev.txt   # pillow for the mock camera frames
+pip install --require-hashes -r requirements-dev.lock.txt   # pillow for the mock camera frames (hash-locked form of requirements-dev.txt)
 python3 sim/run.py            # golden path: hold → GPS → photos → MMS+SMS
 python3 sim/run.py --no-mms   # MMS fails → SMS fallback with "PHOTOS PENDING"
 python3 sim/run.py --no-gps   # no GPS fix → alert still goes out, flagged

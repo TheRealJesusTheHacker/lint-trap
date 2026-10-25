@@ -20,7 +20,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install dev deps
-        run: pip install -r firmware/requirements-dev.txt pytest==9.1.1 ruff==0.17.0 black==26.10.1
+        # Hash-locked (fleet --require-hashes policy, 2026-10-25): the lock
+        # covers firmware/requirements-dev.txt (pillow) plus the exact CI tool
+        # pins below; any hash mismatch fails the install loudly.
+        run: pip install --require-hashes -r firmware/requirements-ci.lock.txt
 
       - name: Lint (ruff)
         run: python -m ruff check firmware/pod/ firmware/sim/
